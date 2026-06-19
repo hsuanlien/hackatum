@@ -2,11 +2,15 @@ import os
 
 # --- Model Configurations ---
 # Paths to model weights (put your customized/pre-trained models in the models/ folder)
-YOLO_MODEL_PATH = "yolov8n.pt"  # Person detection, tracking & poses
+YOLO_MODEL_PATH = "yolov8s.pt"  # Upgraded to small model for better detection
 PPE_MODEL_PATH = "yolov8n.pt"   # Custom safety gear model (e.g. helmets/glasses)
 
+# --- Camera Pre-processing ---
+CAMERA_CONTRAST = 1.2   # 1.0 is default, >1.0 increases contrast
+CAMERA_BRIGHTNESS = 20  # 0 is default, >0 increases brightness
+
 # --- Confidence & Detection Thresholds ---
-PERSON_CONF_THRESHOLD = 0.4
+PERSON_CONF_THRESHOLD = 0.25
 PPE_CONF_THRESHOLD = 0.5
 
 # --- Privacy Settings (Person 3) ---

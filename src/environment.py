@@ -1,7 +1,7 @@
 import cv2
 import numpy as np
 import os
-from src.types import FrameData, TrackedPerson
+from src.pipeline_types import FrameData, TrackedPerson
 import src.config as config
 
 class EnvironmentBehaviorMonitor:
