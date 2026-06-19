@@ -8,7 +8,7 @@ sys.modules.setdefault("sounddevice", None)
 
 import mediapipe as mp
 import numpy as np
-from src.types import FrameData, TrackedPerson
+from src.pipeline_types import FrameData, TrackedPerson
 import src.config as config
 
 class PrivacyAnonymizer:

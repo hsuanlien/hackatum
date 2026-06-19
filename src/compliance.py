@@ -1,7 +1,7 @@
 import cv2
 import numpy as np
 import os
-from src.types import FrameData
+from src.pipeline_types import FrameData
 import src.config as config
 
 class PPEComplianceChecker:
