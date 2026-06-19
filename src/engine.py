@@ -6,7 +6,9 @@ from src.tracker import PersonTracker
 from src.compliance import PPEComplianceChecker
 from src.environment import EnvironmentBehaviorMonitor
 from src.privacy import PrivacyAnonymizer
+from src.privacy_manager import PrivacyManager
 from src.mock_data import MockPipelineGenerator
+import src.config as config
 
 class SafetyPipelineEngine:
     def __init__(self, use_mock: bool = False, video_source: Optional[str] = None):
@@ -25,6 +27,13 @@ class SafetyPipelineEngine:
         self.compliance_stage = PPEComplianceChecker(use_mock=use_mock)
         self.environment_stage = EnvironmentBehaviorMonitor(use_mock=use_mock)
         self.privacy_stage = PrivacyAnonymizer(use_mock=use_mock)
+        
+        # Initialize privacy manager (GDPR compliance & aggregated logging)
+        if config.PRIVACY_ENABLED:
+            self.privacy_manager = PrivacyManager(use_mock=use_mock)
+            print(f"[PipelineEngine] Privacy manager initialized (retention: {config.PRIVACY_RETENTION_DAYS}d)")
+        else:
+            self.privacy_manager = None
         
         # Initialize sources
         if self.use_mock:
@@ -59,6 +68,10 @@ class SafetyPipelineEngine:
         # Note: Privacy runs last to guarantee all sensitive data is redacted before display
         frame_data = self.privacy_stage.process(frame_data)
         
+        # Step 5: Convert frame alerts to aggregated, anonymous compliance events (GDPR pipeline)
+        if self.privacy_manager is not None:
+            self.privacy_manager.process_frame_alerts(frame_data)
+    
         return frame_data
 
     def stream_frames(self) -> Generator[FrameData, None, None]:
@@ -102,6 +115,29 @@ class SafetyPipelineEngine:
                 
         finally:
             self.release()
+
+    def export_compliance_report(self, hours: int = 24) -> Optional[str]:
+        """
+        Export anonymized compliance report for regulatory auditing.
+        
+        Args:
+            hours: Lookback period in hours (default: 24 hours)
+            
+        Returns:
+            JSON-formatted compliance report (None if privacy manager disabled)
+        """
+        if self.privacy_manager is None:
+            return None
+        return self.privacy_manager.get_compliance_report(hours_lookback=hours)
+    
+    def get_current_privacy_summary(self) -> Optional[dict]:
+        """
+        Get aggregated events summary for current time window.
+        Useful for real-time dashboards without exposing individual incidents.
+        """
+        if self.privacy_manager is None:
+            return None
+        return self.privacy_manager.get_current_window_summary()
 
     def release(self):
         """

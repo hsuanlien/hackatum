@@ -1,6 +1,6 @@
 import cv2
 import numpy as np
-from src.types import FrameData
+from src.types import FrameData, TrackedPerson
 import src.config as config
 
 class PrivacyAnonymizer:

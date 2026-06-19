@@ -25,6 +25,15 @@ FALL_ASPECT_RATIO_THRESHOLD = 1.75   # Width/height ratio threshold for aspect r
 # --- Re-Identification settings (Person 2) ---
 REID_COSINE_SIMILARITY_THRESHOLD = 0.7  # Above this, it's considered the same person
 
+# --- Privacy & Compliance Settings (GDPR) ---
+PRIVACY_ENABLED = True                  # Enable privacy pipeline
+PRIVACY_SALT_ROTATION_HOURS = 24        # How often to rotate ID anonymization salt
+PRIVACY_AGGREGATION_WINDOW_MINUTES = 60 # Batch events into hourly windows (not point-in-time)
+PRIVACY_RETENTION_DAYS = 90             # Keep aggregated data for 90 days, then purge
+PRIVACY_AUTO_PURGE = True               # Automatically delete expired data
+PRIVACY_ALLOW_FRAME_EXPORT = False      # NEVER export raw frames (privacy critical)
+PRIVACY_AUDIT_LOG = True                # Log all privacy operations (for compliance)
+
 # --- Directory Paths ---
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 MODELS_DIR = os.path.join(BASE_DIR, "models")
