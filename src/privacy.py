@@ -8,7 +8,7 @@ sys.modules.setdefault("sounddevice", None)
 
 import mediapipe as mp
 import numpy as np
-from src.types import FrameData
+from src.types import FrameData, TrackedPerson
 import src.config as config
 
 class PrivacyAnonymizer:
@@ -25,6 +25,7 @@ class PrivacyAnonymizer:
             self.face_detector = mp.solutions.face_detection.FaceDetection(
                 model_selection=0,
                 min_detection_confidence=0.5,
+                # model_selection=1, 
             )
         else:
             print("[Privacy] Running in MOCK mode.")
