@@ -1,6 +1,8 @@
 import cv2
 import numpy as np
 import os
+
+from ultralytics import YOLO
 from src.pipeline_types import FrameData, TrackedPerson
 import src.config as config
 
@@ -21,13 +23,8 @@ class EnvironmentBehaviorMonitor:
                 from ultralytics import YOLO
 
                 # --- A. Load Pose Model ---
-                pose_path = "yolov8n-pose.pt"
-                # If the pose weight file is in root, load it
-                if os.path.exists(pose_path):
-                    print(f"[Environment] Loading YOLO Pose Model: {pose_path}")
-                    self.pose_model = YOLO(pose_path)
-                else:
-                    print("[Environment] 'yolov8n-pose.pt' weights not found. Bounding box fallback active for fall detection.")
+                print("[Environment] Initializing YOLO Pose Model...")
+                self.pose_model = YOLO("yolov8n-pose.pt")
                 
                 # --- B. Load Custom Fire/Smoke Model ---                 
                 root_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
