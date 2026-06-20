@@ -65,10 +65,10 @@ class SafetyPipelineEngine:
                     has_helmet = True
                     break
 
-            # Update if we detected a helmet (in case compliance stage missed it)
-            if has_helmet and person.has_helmet is None:
+            # Merge helmet votes: preserve True if already detected, otherwise accept positive detections
+            if person.has_helmet is True or has_helmet:
                 person.has_helmet = True
-            elif not has_helmet and person.has_helmet is None:
+            elif person.has_helmet is None:
                 person.has_helmet = False
 
         # Step 3.5: Glasses check (from ppe_model via direct detector for extra validation)
@@ -82,10 +82,10 @@ class SafetyPipelineEngine:
                     has_glasses = True
                     break
 
-            # Update if we detected glasses (in case compliance stage missed it)
-            if has_glasses and person.has_glasses is None:
+            # Merge glasses votes: preserve True if already detected, otherwise accept positive detections
+            if person.has_glasses is True or has_glasses:
                 person.has_glasses = True
-            elif not has_glasses and person.has_glasses is None:
+            elif person.has_glasses is None:
                 person.has_glasses = False
 
         # Step 4: Environment / fall detection

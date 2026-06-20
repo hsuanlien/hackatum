@@ -15,33 +15,67 @@ def render_annotations(frame_data):
     for person in frame_data.persons:
         xmin, ymin, xmax, ymax = person.bbox
         
-        # Color coding: Red = Fall (Critical), Orange = PPE Violation, Green = Safe
+        # Color coding: Red = Fall (Critical), Orange = Unsafe if missing PPE, Green = Safe
         if person.is_fallen:
             color = (0, 0, 255)  # BGR Red
             status_text = "FALL DETECTED!"
         elif len(person.compliance_violations) > 0:
             color = (0, 140, 255)  # BGR Orange
-            status_text = f"INFRACTION: {', '.join(person.compliance_violations)}"
+            status_text = "UNSAFE"
         else:
             color = (0, 255, 0)  # BGR Green
             status_text = "SAFE"
-            
+
+        helmet_text = "Wears Helmet" if person.has_helmet else "No Helmet"
+        glasses_text = "Wears Glasses" if person.has_glasses else "No Glasses"
+        if person.has_helmet is None:
+            helmet_text = "Helmet: Unknown"
+        if person.has_glasses is None:
+            glasses_text = "Glasses: Unknown"
+
         # Draw bounding box
         cv2.rectangle(frame, (xmin, ymin), (xmax, ymax), color, 2)
         
-        # Header tag background
-        tag_text = f"Worker {person.person_id} [{status_text}]"
-        (tw, th), _ = cv2.getTextSize(tag_text, cv2.FONT_HERSHEY_SIMPLEX, 0.4, 1)
-        cv2.rectangle(frame, (xmin, ymin - 20), (xmin + tw + 10, ymin), color, -1)
+        # Header tag background (three rows for labels)
+        worker_text = f"Worker {person.person_id}"
+        tag_text = f"{worker_text}"
+        info_text = status_text
+        details_text = f"{helmet_text} | {glasses_text}"
+        (tw, th), _ = cv2.getTextSize(details_text, cv2.FONT_HERSHEY_SIMPLEX, 0.4, 1)
+        (iw, ih), _ = cv2.getTextSize(info_text, cv2.FONT_HERSHEY_SIMPLEX, 0.4, 1)
+        (ww, wh), _ = cv2.getTextSize(worker_text, cv2.FONT_HERSHEY_SIMPLEX, 0.4, 1)
+        tag_width = max(tw, iw, ww)
+        total_height = th + ih + wh + 10
+        cv2.rectangle(frame, (xmin, ymin - total_height), (xmin + tag_width + 10, ymin), color, -1)
         
         # Draw header text
+        text_color = (0, 0, 0) if color in [(0, 255, 0), (0, 140, 255)] else (255, 255, 255)
+        y_offset = ymin - total_height + 16
         cv2.putText(
-            frame, 
-            tag_text, 
-            (xmin + 5, ymin - 6), 
-            cv2.FONT_HERSHEY_SIMPLEX, 
-            0.4, 
-            (0, 0, 0) if color == (0, 255, 0) or color == (0, 140, 255) else (255, 255, 255), 
+            frame,
+            worker_text,
+            (xmin + 5, y_offset),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.4,
+            text_color,
+            1
+        )
+        cv2.putText(
+            frame,
+            details_text,
+            (xmin + 5, y_offset + wh),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.35,
+            text_color,
+            1
+        )
+        cv2.putText(
+            frame,
+            info_text,
+            (xmin + 5, y_offset + wh + th),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.35,
+            text_color,
             1
         )
         

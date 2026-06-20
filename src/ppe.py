@@ -24,10 +24,14 @@ class HelmetDetector:
         for box in results.boxes:
             cls_id = int(box.cls[0])
             class_name = self.model.names[cls_id]
+            label = class_name.lower().replace('-', ' ').replace('_', ' ').strip()
             conf = float(box.conf[0])
 
-            # Detect positive helmet detections (ignore no_helmet detections)
-            if class_name.lower() in ["helmet", "hardhat", "hard_hat", "safety helmet"]:
+            # Detect positive helmet detections (ignore explicit no-helmet labels)
+            if "no helmet" in label or "no hardhat" in label or "no glasses" in label:
+                continue
+
+            if "helmet" in label or "hard hat" in label or "safety helmet" in label or "safety hat" in label:
                 x1, y1, x2, y2 = box.xyxy[0].cpu().numpy().astype(int)
                 helmet_boxes.append((x1, y1, x2, y2, conf))
 
@@ -41,19 +45,25 @@ def helmet_inside_person(person_bbox, helmet_bbox):
     helmet_center_x = (hx1 + hx2) // 2
     helmet_center_y = (hy1 + hy2) // 2
 
-    # Helmet should be inside person box
-    inside_person = (
-        px1 <= helmet_center_x <= px2 and
-        py1 <= helmet_center_y <= py2
-    )
+    # Helmet should overlap with the upper body region of the person box.
+    overlap_x1 = max(px1, hx1)
+    overlap_y1 = max(py1, hy1)
+    overlap_x2 = min(px2, hx2)
+    overlap_y2 = min(py2, hy2)
+    overlap_width = max(0, overlap_x2 - overlap_x1)
+    overlap_height = max(0, overlap_y2 - overlap_y1)
+    overlap_area = overlap_width * overlap_height
 
-    # Helmet should be near top 40% of body
+    helmet_area = max(1, (hx2 - hx1) * (hy2 - hy1))
+    overlap_ratio = overlap_area / helmet_area
+    if overlap_ratio < 0.25:
+        return False
+
     person_height = py2 - py1
-    top_region_bottom = py1 + int(0.4 * person_height)
+    top_region_bottom = py1 + int(0.5 * person_height)
+    in_head_region = hy2 <= top_region_bottom or helmet_center_y <= top_region_bottom
 
-    in_head_region = py1 <= helmet_center_y <= top_region_bottom
-
-    return inside_person and in_head_region
+    return in_head_region
 
 
 class GlassesDetector:
@@ -77,10 +87,14 @@ class GlassesDetector:
         for box in results.boxes:
             cls_id = int(box.cls[0])
             class_name = self.model.names[cls_id]
+            label = class_name.lower().replace('-', ' ').replace('_', ' ').strip()
             conf = float(box.conf[0])
 
-            # Detect positive goggles/glasses detections (ignore no_goggles)
-            if class_name.lower() in ["glasses", "goggles", "safety glasses", "safety goggles", "eyewear"]:
+            # Detect positive goggles/glasses detections (ignore explicit no-glasses labels)
+            if "no glasses" in label or "no goggles" in label:
+                continue
+
+            if "glass" in label or "goggle" in label or "eyewear" in label or "safety glasses" in label or "safety goggles" in label:
                 x1, y1, x2, y2 = box.xyxy[0].cpu().numpy().astype(int)
                 glasses_boxes.append((x1, y1, x2, y2, conf))
 
