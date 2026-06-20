@@ -6,6 +6,7 @@ import os
 import json
 from datetime import datetime
 from collections import deque
+import threading
 from src.engine import SafetyPipelineEngine
 from src.session_labels import worker_label
 from src.zone_map import draw_zones_overlay
@@ -23,7 +24,7 @@ class SupervisorReplayRecorder:
 
         self._pre_buffer = deque(maxlen=1200)
         self._active_event = None
-        self._last_trigger_ts = 0.0
+        self._last_trigger_ts_by_type = {}
         self._popup_until_ts = 0.0
         self._popup_lines = []
         self._saved_until_ts = 0.0
@@ -45,7 +46,9 @@ class SupervisorReplayRecorder:
     def trigger(self, timestamp, event):
         if self._active_event is not None:
             return False
-        if timestamp - self._last_trigger_ts < self.cooldown_seconds:
+        event_key = str(event.get("type", "CRITICAL"))
+        last_ts = float(self._last_trigger_ts_by_type.get(event_key, 0.0))
+        if timestamp - last_ts < self.cooldown_seconds:
             return False
 
         pre_start = timestamp - self.pre_seconds
@@ -57,7 +60,7 @@ class SupervisorReplayRecorder:
             "end_ts": timestamp + self.post_seconds,
             "frames": pre_frames,
         }
-        self._last_trigger_ts = timestamp
+        self._last_trigger_ts_by_type[event_key] = timestamp
 
         self._popup_until_ts = timestamp + 4.0
         self._popup_lines = [
@@ -78,76 +81,61 @@ class SupervisorReplayRecorder:
         if not frames:
             return
 
-        # Normalize replay frames so codecs receive consistent 8-bit BGR images.
-        norm_frames = []
+        # Start a thread to save the video so we don't block the main loop
+        t = threading.Thread(target=self._save_video_task, args=(timestamp, event, frames))
+        t.daemon = True
+        t.start()
+
+    def _save_video_task(self, timestamp, event, frames):
+        if not frames:
+            return
+
         base_h, base_w = frames[0].shape[:2]
         base_w = int(base_w) - (int(base_w) % 2)
         base_h = int(base_h) - (int(base_h) % 2)
-        for frame in frames:
-            if frame is None or frame.size == 0:
-                continue
-            out = frame
-            if len(out.shape) == 2:
-                out = cv2.cvtColor(out, cv2.COLOR_GRAY2BGR)
-            elif out.shape[2] == 4:
-                out = cv2.cvtColor(out, cv2.COLOR_BGRA2BGR)
-            if out.dtype != "uint8":
-                out = out.clip(0, 255).astype("uint8")
-            if out.shape[1] != base_w or out.shape[0] != base_h:
-                out = cv2.resize(out, (base_w, base_h), interpolation=cv2.INTER_LINEAR)
-            else:
-                out = out[:base_h, :base_w]
-            norm_frames.append(out.copy())
 
-        if not norm_frames:
-            return
-
-        height, width = norm_frames[0].shape[:2]
         duration = max(0.1, self.pre_seconds + self.post_seconds)
-        fps = max(8.0, min(24.0, len(norm_frames) / duration))
+        fps = max(8.0, min(24.0, len(frames) / duration))
 
         stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         event_slug = event["type"].lower().replace("/", "_").replace(" ", "_")
         base_name = f"event_{stamp}_{event_slug}"
         avi_path = os.path.join(self.output_dir, f"{base_name}.avi")
-        mp4_path = os.path.join(self.output_dir, f"{base_name}.mp4")
         meta_path = os.path.join(self.output_dir, f"{base_name}.json")
 
-        # Primary export: MJPG AVI is broadly decodable on macOS and avoids green-frame artifacts.
         avi_writer = cv2.VideoWriter(
             avi_path,
             cv2.VideoWriter_fourcc(*"MJPG"),
             fps,
-            (width, height),
+            (base_w, base_h),
         )
 
+        valid_frames_count = 0
         if avi_writer.isOpened():
-            for frame in norm_frames:
-                avi_writer.write(frame)
+            for frame in frames:
+                if frame is None or frame.size == 0:
+                    continue
+                out = frame
+                if len(out.shape) == 2:
+                    out = cv2.cvtColor(out, cv2.COLOR_GRAY2BGR)
+                elif out.shape[2] == 4:
+                    out = cv2.cvtColor(out, cv2.COLOR_BGRA2BGR)
+                if out.dtype != "uint8":
+                    out = out.clip(0, 255).astype("uint8")
+                if out.shape[1] != base_w or out.shape[0] != base_h:
+                    out = cv2.resize(out, (base_w, base_h), interpolation=cv2.INTER_LINEAR)
+                else:
+                    out = out[:base_h, :base_w]
+                avi_writer.write(out)
+                valid_frames_count += 1
             avi_writer.release()
-            replay_path = avi_path
-        else:
-            replay_path = mp4_path
-
-        # Secondary export: keep mp4 as optional compatibility artifact.
-        mp4_writer = cv2.VideoWriter(
-            mp4_path,
-            cv2.VideoWriter_fourcc(*"mp4v"),
-            fps,
-            (width, height),
-        )
-        if mp4_writer.isOpened():
-            for frame in norm_frames:
-                mp4_writer.write(frame)
-            mp4_writer.release()
 
         metadata = {
             "timestamp": timestamp,
             "event": event,
-            "video_path": replay_path,
+            "video_path": avi_path,
             "video_path_avi": avi_path,
-            "video_path_mp4": mp4_path,
-            "frame_count": len(norm_frames),
+            "frame_count": valid_frames_count,
             "fps": fps,
             "pre_seconds": self.pre_seconds,
             "post_seconds": self.post_seconds,
@@ -156,34 +144,42 @@ class SupervisorReplayRecorder:
             json.dump(metadata, f, indent=2)
 
         self._saved_until_ts = timestamp + 3.0
-        self._saved_text = f"REPLAY SAVED: {os.path.basename(replay_path)}"
+        self._saved_text = f"REPLAY SAVED: {os.path.basename(avi_path)}"
 
     def draw_overlay(self, frame, timestamp):
         w = frame.shape[1]
-        x_right = w - 8
-        y_pos = 32 # Positioned cleanly under the top row of pills
-        font_scale = 0.3
+        font_scale = 0.4
+        
+        # Center x calculation helper
+        def get_center_x(text, scale):
+            (tw, _), _ = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, scale, 1)
+            return (w - tw) // 2
 
         if timestamp <= self._saved_until_ts and self._saved_text:
             text = self._saved_text
             (tw, th), _ = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, font_scale, 1)
-            cv2.rectangle(frame, (x_right - tw - 10, y_pos), (x_right, y_pos + th + 10), (0, 120, 0), -1)
-            cv2.putText(frame, text, (x_right - tw - 5, y_pos + th + 5), cv2.FONT_HERSHEY_SIMPLEX, font_scale, (255, 255, 255), 1, cv2.LINE_AA)
-            y_pos += th + 15
+            cx = get_center_x(text, font_scale)
+            cv2.rectangle(frame, (cx - 10, 10), (cx + tw + 10, 10 + th + 10), (0, 120, 0), -1)
+            cv2.putText(frame, text, (cx, 10 + th + 5), cv2.FONT_HERSHEY_SIMPLEX, font_scale, (255, 255, 255), 1, cv2.LINE_AA)
 
         if timestamp <= self._popup_until_ts and self._popup_lines:
-            line_height = 14
-            pill_h = 10 + line_height * len(self._popup_lines)
+            y_pos = 40 if (timestamp <= self._saved_until_ts and self._saved_text) else 10
+            line_height = 20
             
+            # Find max width for the pill
             max_w = 0
             for line in self._popup_lines:
                 (tw, _), _ = cv2.getTextSize(line, cv2.FONT_HERSHEY_SIMPLEX, font_scale, 1)
                 max_w = max(max_w, tw)
                 
-            cv2.rectangle(frame, (x_right - max_w - 10, y_pos), (x_right, y_pos + pill_h), (0, 0, 180), -1)
+            pill_h = 10 + line_height * len(self._popup_lines)
+            cx_rect = (w - max_w) // 2
+            
+            cv2.rectangle(frame, (cx_rect - 15, y_pos), (cx_rect + max_w + 15, y_pos + pill_h), (0, 0, 180), -1)
             
             for i, line in enumerate(self._popup_lines):
-                cv2.putText(frame, line, (x_right - max_w - 5, y_pos + 12 + i * line_height), cv2.FONT_HERSHEY_SIMPLEX, font_scale, (255, 255, 255), 1, cv2.LINE_AA)
+                cx_text = get_center_x(line, font_scale)
+                cv2.putText(frame, line, (cx_text, y_pos + 15 + i * line_height), cv2.FONT_HERSHEY_SIMPLEX, font_scale, (255, 255, 255), 1, cv2.LINE_AA)
 
 
 def build_critical_event(frame_data):
@@ -192,8 +188,23 @@ def build_critical_event(frame_data):
     confidence = "MEDIUM" if reliability_mode == "LIMITED" else "HIGH"
 
     for alert in frame_data.alerts:
+        if alert.get("debounced", False):
+            continue
+
         alert_type = str(alert.get("type", ""))
         severity = str(alert.get("severity", "")).upper()
+
+        if alert_type == "RESTRICTED_ENTRY":
+            person_id = alert.get("person_id", "unknown")
+            zone_id = alert.get("zone_id", "unknown")
+            return {
+                "type": "RESTRICTED ENTRY",
+                "summary": f"Worker {person_id} entered restricted zone {zone_id} at {event_time}",
+                "where": zone_id,
+                "who": f"worker_{person_id}",
+                "confidence": confidence,
+                "action": "DISPATCH ROVER",
+            }
 
         if alert_type == "ENVIRONMENT_ALERT":
             msg = str(alert.get("message", "")).upper()
@@ -220,7 +231,7 @@ def build_critical_event(frame_data):
                 "action": "CHECK WORKER NOW",
             }
 
-        if severity == "CRITICAL" or alert_type == "RESTRICTED_ENTRY":
+        if severity == "CRITICAL":
             person_id = alert.get("person_id", "unknown")
             zone_id = alert.get("zone_id", "unknown")
             return {
@@ -263,43 +274,53 @@ def render_annotations(frame_data):
         xmin, ymin, xmax, ymax = person.bbox
         zone_id = person.metadata.get("zone_id", "safe")
         has_yellow_vest = person.metadata.get("has_yellow_vest")
+        zone_violations = list(person.metadata.get("zone_violations", []))
+        optional_missing = list(person.metadata.get("zone_optional_missing", []))
+        zone_forbidden = bool(person.metadata.get("zone_forbidden", False))
 
         is_safe = True
         color = (0, 200, 0)
+        status = "SAFE"
 
         if person.is_fallen:
             is_safe = False
             color = (0, 0, 255)
+            status = "FALL"
             danger_area_count += 1
-        elif zone_id == "restricted":
+        elif zone_forbidden or zone_id == "restricted":
             is_safe = False
             color = (0, 0, 255)
+            status = "RESTRICTED: NO ENTRY"
             danger_area_count += 1
         elif zone_id == "work_floor":
-            violations = []
-            if person.has_helmet is not True:
-                violations.append("NO HELMET")
-            if person.has_glasses is not True:
-                violations.append("NO GLASSES")
-            if has_yellow_vest is False:
-                violations.append("NO VEST")
-            if violations:
+            if zone_violations:
                 is_safe = False
                 color = (0, 140, 255)
+                status = "WORK: MISSING " + "/".join(v.upper() for v in zone_violations)
                 danger_area_count += 1
+            else:
+                status = "WORK SAFE (HELMET+GLASSES)"
+                if "Vest" in optional_missing or has_yellow_vest is False:
+                    status = "WORK SAFE (VEST OPTIONAL)"
+        else:
+            status = "SAFE ZONE"
 
         if is_safe:
             draw_corner_brackets(frame, xmin, ymin, xmax, ymax, color, thickness=1, length=10)
         else:
             cv2.rectangle(overlay, (xmin, ymin), (xmax, ymax), color, -1)
 
+        tag = f"{worker_label(person.person_id)} {status}"
+        (tw, th), _ = cv2.getTextSize(tag, cv2.FONT_HERSHEY_SIMPLEX, 0.3, 1)
+        text_y = max(th + 2, ymin - 2)
+        cv2.rectangle(frame, (xmin, text_y - th - 4), (xmin + tw + 6, text_y + 2), color, -1)
         cv2.putText(
             frame,
-            worker_label(person.person_id),
-            (xmin, max(10, ymin - 4)),
+            tag,
+            (xmin + 3, text_y),
             cv2.FONT_HERSHEY_SIMPLEX,
-            0.25,
-            color,
+            0.3,
+            (255, 255, 255),
             1,
             cv2.LINE_AA,
         )
@@ -362,6 +383,26 @@ def render_annotations(frame_data):
         cv2.rectangle(frame, (x_right - tw - 10, y_top), (x_right, y_top + th + 10), (0, 0, 255), -1)
         cv2.putText(frame, text, (x_right - tw - 5, y_top + th + 5), cv2.FONT_HERSHEY_SIMPLEX, font_scale, (255, 255, 255), 1, cv2.LINE_AA)
 
+    visible_alerts = [a for a in frame_data.alerts if not a.get("debounced", False)]
+    if visible_alerts:
+        top = visible_alerts[0]
+        alert_text = str(top.get("message", "ALERT"))
+        if len(alert_text) > 70:
+            alert_text = alert_text[:67] + "..."
+        (tw, th), _ = cv2.getTextSize(alert_text, cv2.FONT_HERSHEY_SIMPLEX, 0.32, 1)
+        y_alert = y_top + 22
+        cv2.rectangle(frame, (8, y_alert), (18 + tw, y_alert + th + 10), (0, 0, 200), -1)
+        cv2.putText(
+            frame,
+            alert_text,
+            (12, y_alert + th + 5),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.32,
+            (255, 255, 255),
+            1,
+            cv2.LINE_AA,
+        )
+
 
 def main():
     window_name = "MTU Room Monitor"
@@ -422,14 +463,7 @@ def main():
                             f"[{alert['severity']}] {alert['message']}"
                         )
 
-            display_frame = cv2.resize(
-                frame_data.processed_frame,
-                None,
-                fx=2.0,
-                fy=2.0,
-                interpolation=cv2.INTER_LINEAR,
-            )
-            cv2.imshow(window_name, display_frame)
+            cv2.imshow(window_name, frame_data.processed_frame)
 
             key = cv2.waitKey(1) & 0xFF
             if key == ord("g"):

@@ -14,13 +14,13 @@ if FAST_MODE:
     YOLO_MODEL_PATH = "yolov8n.pt"
     CAMERA_MAX_WIDTH = 480
     PPE_IMGSZ = 320
-    PPE_INFERENCE_INTERVAL = 2
-    PPE_CROP_PASS = False
-    PPE_CROP_MAX_PERSONS = 0
-    PERSON_DETECT_INTERVAL = 2
+    PPE_INFERENCE_INTERVAL = 1
+    PPE_CROP_PASS = True
+    PPE_CROP_MAX_PERSONS = 5
+    PERSON_DETECT_INTERVAL = 1
     FACE_DETECT_INTERVAL = 4
-    POSE_INFERENCE_INTERVAL = 4
-    SMOKE_INFERENCE_INTERVAL = 6
+    POSE_INFERENCE_INTERVAL = 1
+    SMOKE_INFERENCE_INTERVAL = 1
     COMPLIANCE_HEURISTIC_INTERVAL = 1
     ASYNC_FRAME_GRAB = True
 elif SMOOTH_MODE:
@@ -57,6 +57,9 @@ REID_STABLE_TRACK_FRAMES = 5
 
 # --- Model Configurations ---
 PPE_MODEL_PATH = "models/ppe_model.pt"
+PPE_FORCE_PRETRAINED = True
+PPE_USE_PRETRAINED_WORLD = True
+PPE_PRETRAINED_MODEL = "yolov8s-worldv2.pt"
 POSE_MODEL_PATH = "yolov8n-pose.pt"
 
 # --- Camera Pre-processing ---
@@ -66,6 +69,24 @@ CAMERA_BRIGHTNESS = 0  # 0 is default, >0 increases brightness
 # --- Confidence & Detection Thresholds ---
 PERSON_CONF_THRESHOLD = 0.45
 PPE_CONF_THRESHOLD = 0.2
+
+# --- PPE Precision Tuning (pretrained-friendly) ---
+# Higher thresholds reduce false positive PPE detections.
+PPE_HELMET_STRICT_CONF = 0.50
+PPE_GLASSES_STRICT_CONF = 0.48
+PPE_GLASSES_HELMET_ASSIST = True
+PPE_GLASSES_HELMET_CONF_BONUS = 0.08
+PPE_HELMET_REL_Y_MAX = 0.55
+PPE_GLASSES_REL_Y_MAX = 0.52
+PPE_GLASSES_REL_X_MIN = 0.08
+PPE_GLASSES_REL_X_MAX = 0.92
+PPE_GLASSES_AREA_MIN = 0.0015
+PPE_GLASSES_AREA_MAX = 0.14
+# Require repeated evidence before marking PPE as present.
+PPE_CONFIRM_FRAMES = 1
+# Require repeated misses before clearing PPE presence.
+PPE_CLEAR_FRAMES = 4
+PPE_USE_GLASSES_HEURISTIC = False
 
 # --- Privacy Settings (Person 3) ---
 PRIVACY_CENSORSHIP_MODE = "blur"    # "blur" or "garfield" (toggle in UI / press g in main.py)
@@ -79,9 +100,9 @@ PRIVACY_FACE_SMOOTHING_ALPHA = 0.7  # Weight of the latest face detection in EMA
 BLUR_TATOOS = True                  # Prototype: blur pose-derived arm regions
 TATTOO_MODEL_PATH = "models/tattoo_model.pt"
 TATTOO_CONF_THRESHOLD = 0.25        # Favor clear tattoos and reduce false positives
-TATTOO_MASK_THRESHOLD = 0.5         # Segmentation mask binarization threshold
+TATTOO_MASK_THRESHOLD = 0.35        # Segmentation mask binarization threshold
 TATTOO_INPUT_SIZE = 640             # YOLO tattoo inference resolution
-TATTOO_FAIL_CLOSED = False          # Keep arms clear if tattoo inference fails
+TATTOO_FAIL_CLOSED = True           # Blur full ROI if tattoo inference/mask fails
 ARM_ROI_PADDING_RATIO = 0.15        # Tighter padding for cleaner arm crops
 ARM_ROI_MIN_PADDING = 12            # Minimum arm ROI padding in pixels
 LEG_ROI_PADDING_RATIO = 0.15        # Padding relative to each leg segment length
