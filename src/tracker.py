@@ -31,7 +31,11 @@ class PersonTracker:
         if not use_mock:
             print(f"[Tracker] Initializing YOLO model: {config.YOLO_MODEL_PATH}")
             self.model = YOLO(config.YOLO_MODEL_PATH)
-            self.tracker = sv.ByteTrack(lost_track_buffer=150)
+            self.tracker = sv.ByteTrack(
+                track_activation_threshold=config.PERSON_CONF_THRESHOLD,
+                lost_track_buffer=150,
+                minimum_consecutive_frames=3
+            )
             
             # Re-ID database: maps persistent_id -> deque of visual embeddings (max 50, auto-evicts oldest)
             self.embedding_cache: Dict[int, Deque[np.ndarray]] = {}

@@ -53,7 +53,7 @@ CAMERA_CONTRAST = 1.2   # 1.0 is default, >1.0 increases contrast
 CAMERA_BRIGHTNESS = 20  # 0 is default, >0 increases brightness
 
 # --- Confidence & Detection Thresholds ---
-PERSON_CONF_THRESHOLD = 0.25
+PERSON_CONF_THRESHOLD = 0.45
 PPE_CONF_THRESHOLD = 0.5
 
 # --- Privacy Settings (Person 3) ---
