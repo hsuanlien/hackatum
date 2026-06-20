@@ -127,7 +127,8 @@ REID_COSINE_SIMILARITY_THRESHOLD = 0.72  # Balanced threshold: strict enough to 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 MODELS_DIR = os.path.join(BASE_DIR, "models")
 DATA_DIR = os.path.join(BASE_DIR, "data")
-GARFIELD_IMAGE_PATH = os.path.join(DATA_DIR, "garfield.png")
+IMAGES_DIR = os.path.join(BASE_DIR, "images")
+GARFIELD_IMAGE_PATH = os.path.join(IMAGES_DIR, "garfield.png")
 
 # --- Zone map (B-lite) ---
 ZONES_ENABLED = True
