@@ -9,6 +9,7 @@ from src.environment import EnvironmentBehaviorMonitor
 from src.privacy import PrivacyAnonymizer
 from src.mock_data import MockPipelineGenerator
 from src.ppe import HelmetDetector, helmet_inside_person, GlassesDetector, glasses_inside_person
+from src.dispatcher import RobotDispatcher
 
 
 class SafetyPipelineEngine:
@@ -23,6 +24,7 @@ class SafetyPipelineEngine:
         self.compliance_stage = PPEComplianceChecker(use_mock=use_mock)
         self.environment_stage = EnvironmentBehaviorMonitor(use_mock=use_mock)
         self.privacy_stage = PrivacyAnonymizer(use_mock=use_mock)
+        self.dispatcher = RobotDispatcher()
 
         # Helmet detector.
         # Uses trained PPE model for accurate detection
@@ -91,6 +93,15 @@ class SafetyPipelineEngine:
         # Step 4: Environment / fall detection
         frame_data = self.environment_stage.process(frame_data)
 
+        # Step 4.5: Dispatch robot signal for any confirmed fall or PPE violation
+        for person in frame_data.persons:
+            if person.is_fallen:
+                self.dispatcher.send(alert_type="FALL_DETECTED", person_id=person.person_id)
+            if "Helmet" in person.compliance_violations:
+                self.dispatcher.send(alert_type="NO_HELMET", person_id=person.person_id)
+            if "Glasses" in person.compliance_violations:
+                self.dispatcher.send(alert_type="NO_GLASSES", person_id=person.person_id)
+
         # Step 5: Privacy redaction last
         frame_data = self.privacy_stage.process(frame_data)
 
@@ -142,6 +153,7 @@ class SafetyPipelineEngine:
 
     def release(self):
         self.running = False
+        self.dispatcher.shutdown()
 
         if self.cap is not None:
             self.cap.release()
