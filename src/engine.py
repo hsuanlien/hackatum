@@ -120,16 +120,16 @@ class SafetyPipelineEngine:
 
         t0 = time.time()
         frame_data = self.tracker_stage.process(frame_data)
-        stage_ms["tracker"] = int((time.time() - t0) * 1000)
+        t1 = time.time()
+        if t1 - t0 > 0.1: print(f"LAG DETECTED: tracker took {t1 - t0:.2f}s")
+        stage_ms["tracker"] = int((t1 - t0) * 1000)
 
+        t0 = time.time()
         if not self.use_mock:
-            t0 = time.time()
             ppe_result = self.ppe_detector.detect_all(
                 frame_data.raw_frame,
                 persons=frame_data.persons,
             )
-            stage_ms["ppe_yolo"] = int((time.time() - t0) * 1000)
-            stage_ms["ppe_assign"] = 0
             frame_data.extra_metadata["ppe_debug"] = {
                 "helmet_boxes": ppe_result.helmet_boxes,
                 "glasses_boxes": ppe_result.glasses_boxes,

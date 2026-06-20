@@ -449,18 +449,26 @@ def main():
     print("=" * 50 + "\n")
 
     cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
-    cv2.setWindowProperty(window_name, cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_FULLSCREEN)
+    cv2.resizeWindow(window_name, 1920, 1080)
 
     try:
         for frame_data in stream:
+            t_start = time.time()
+            
             render_annotations(frame_data)
+            t_render = time.time()
+            if t_render - t_start > 0.1: print(f"LAG DETECTED: render_annotations took {t_render - t_start:.2f}s")
 
             event = build_critical_event(frame_data)
             if event is not None:
                 replay.trigger(frame_data.timestamp, event)
+            t_event = time.time()
+            if t_event - t_render > 0.1: print(f"LAG DETECTED: build_event took {t_event - t_render:.2f}s")
 
             replay.draw_overlay(frame_data.processed_frame, frame_data.timestamp)
             replay.add_frame(frame_data.timestamp, frame_data.processed_frame)
+            t_replay = time.time()
+            if t_replay - t_event > 0.1: print(f"LAG DETECTED: replay took {t_replay - t_event:.2f}s")
 
             if frame_data.alerts:
                 for alert in frame_data.alerts:
@@ -480,8 +488,13 @@ def main():
                                 f"[{alert['severity']}] {alert['message']}"
                             )
                             alert_log_last_ts[alert_key] = now_ts
+                            
+            t_alert = time.time()
+            if t_alert - t_replay > 0.1: print(f"LAG DETECTED: alert logging took {t_alert - t_replay:.2f}s")
 
             cv2.imshow(window_name, frame_data.processed_frame)
+            t_imshow = time.time()
+            if t_imshow - t_alert > 0.1: print(f"LAG DETECTED: imshow took {t_imshow - t_alert:.2f}s")
 
             key = cv2.waitKey(1) & 0xFF
             if key == ord("w"):

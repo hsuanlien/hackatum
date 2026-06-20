@@ -310,70 +310,68 @@ if run_pipeline:
             replay.draw_overlay(frame_data.processed_frame, frame_data.timestamp)
             replay.add_frame(frame_data.timestamp, frame_data.processed_frame)
             
-            # Streamlit needs RGB image format, cv2 operates on BGR
-            rgb_frame = cv2.cvtColor(frame_data.processed_frame, cv2.COLOR_BGR2RGB)
-            
-            # Display image in Streamlit
-            frame_placeholder.image(rgb_frame, channels="RGB", width="stretch")
-            
-            # Update metrics
-            current_workers_metric.metric("Workers Present", frame_data.current_people_count)
-            unique_total_metric.metric("Total Visitors Today", frame_data.total_unique_people)
-            
-            # Calculate safety score
-            num_violations = 0
-            num_fallen = 0
-            for p in frame_data.persons:
-                if len(p.compliance_violations) > 0:
-                    num_violations += 1
-                if p.is_fallen:
-                    num_fallen += 1
-            
-            safe_workers = len(frame_data.persons) - num_violations - num_fallen
-            safety_score = int((safe_workers / len(frame_data.persons)) * 100) if len(frame_data.persons) > 0 else 100
-            
-            safety_rating_metric.metric("Safety Rating", f"{safety_score}%", 
-                                        delta=None if safety_score == 100 else f"-{100 - safety_score}% Compliance Deficit",
-                                        delta_color="off" if safety_score == 100 else "inverse")
-            
-            fps = frame_data.extra_metadata.get("fps", 0)
-            fps_metric.metric("Engine Performance", f"{fps} FPS", f"{frame_data.extra_metadata.get('latency_ms', 0)} ms/frame")
+            # Streamlit UI Updates (Throttled to 10 FPS to prevent websocket flooding)
+            if frame_count % 3 == 0:
+                # Streamlit needs RGB image format, cv2 operates on BGR
+                rgb_frame = cv2.cvtColor(frame_data.processed_frame, cv2.COLOR_BGR2RGB)
+                
+                # Display image in Streamlit
+                frame_placeholder.image(rgb_frame, channels="RGB", width="stretch")
+                
+                # Update metrics
+                current_workers_metric.metric("Workers Present", frame_data.current_people_count)
+                unique_total_metric.metric("Total Visitors Today", frame_data.total_unique_people)
+                
+                # Calculate safety score
+                num_violations = 0
+                num_fallen = 0
+                for p in frame_data.persons:
+                    if len(p.compliance_violations) > 0:
+                        num_violations += 1
+                    if p.is_fallen:
+                        num_fallen += 1
+                
+                safe_workers = len(frame_data.persons) - num_violations - num_fallen
+                safety_score = int((safe_workers / len(frame_data.persons)) * 100) if len(frame_data.persons) > 0 else 100
+                
+                safety_rating_metric.metric("Safety Rating", f"{safety_score}%", 
+                                            delta=None if safety_score == 100 else f"-{100 - safety_score}% Compliance Deficit",
+                                            delta_color="off" if safety_score == 100 else "inverse")
+                
+                fps = frame_data.extra_metadata.get("fps", 0)
+                fps_metric.metric("Engine Performance", f"{fps} FPS", f"{frame_data.extra_metadata.get('latency_ms', 0)} ms/frame")
 
-            fire_active = bool(frame_data.is_fire_detected or frame_data.is_smoke_detected)
-            fire_alarm_metric.metric(
-                "Fire Alarm",
-                "ACTIVE" if fire_active else "Clear",
-                delta="SMOKE/FIRE" if fire_active else "No hazard",
-                delta_color="inverse" if fire_active else "off",
-            )
+                fire_active = bool(frame_data.is_fire_detected or frame_data.is_smoke_detected)
+                fire_alarm_metric.metric(
+                    "Fire Alarm",
+                    "ACTIVE" if fire_active else "Clear",
+                    delta="SMOKE/FIRE" if fire_active else "No hazard",
+                    delta_color="inverse" if fire_active else "off",
+                )
 
-            frame_verification_points, frame_danger_score = compute_frame_scores(frame_data)
-            verification_points_total += frame_verification_points
-            danger_history.append((float(frame_data.timestamp), frame_danger_score, frame_verification_points))
+                verification_points_metric.metric(
+                    "Verification Points",
+                    f"{verification_points_total}",
+                    delta=f"+{frame_verification_points}/frame" if frame_verification_points > 0 else "0/frame",
+                    delta_color="off",
+                )
 
-            verification_points_metric.metric(
-                "Verification Points",
-                f"{verification_points_total}",
-                delta=f"+{frame_verification_points}/frame" if frame_verification_points > 0 else "0/frame",
-                delta_color="off",
-            )
+                danger_label = "SAFE"
+                if frame_danger_score > 70:
+                    danger_label = "CRITICAL"
+                elif frame_danger_score > 45:
+                    danger_label = "HIGH"
+                elif frame_danger_score > 25:
+                    danger_label = "MEDIUM"
+                elif frame_danger_score > 10:
+                    danger_label = "LOW"
 
-            danger_label = "SAFE"
-            if frame_danger_score > 70:
-                danger_label = "CRITICAL"
-            elif frame_danger_score > 45:
-                danger_label = "HIGH"
-            elif frame_danger_score > 25:
-                danger_label = "MEDIUM"
-            elif frame_danger_score > 10:
-                danger_label = "LOW"
-
-            danger_score_metric.metric(
-                "Danger Score",
-                f"{frame_danger_score}",
-                delta=danger_label,
-                delta_color="inverse" if frame_danger_score > 45 else "off",
-            )
+                danger_score_metric.metric(
+                    "Danger Score",
+                    f"{frame_danger_score}",
+                    delta=danger_label,
+                    delta_color="inverse" if frame_danger_score > 45 else "off",
+                )
 
             if frame_count % 15 == 0:
                 hist_df, trend_df = render_danger_histogram(

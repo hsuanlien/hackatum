@@ -182,7 +182,7 @@ TRACKER_PRUNE_INTERVAL = 500
 
 # --- Runtime Responsiveness ---
 # Store every Nth frame in replay pre-buffer to reduce copy overhead.
-REPLAY_BUFFER_STRIDE = 2
+REPLAY_BUFFER_STRIDE = 10
 # Limit repeated alert prints to avoid terminal I/O stalls.
 ALERT_LOG_MIN_INTERVAL_SECONDS = 1.0
 

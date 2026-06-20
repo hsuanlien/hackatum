@@ -136,21 +136,29 @@ class RobotDispatcher:
             print(f"[Dispatcher] [WARNING] MQTT publish returned rc={result.rc}")
 
     def _send_http(self, payload: dict):
-        """HTTP adapter — POSTs JSON to the configured REST endpoint."""
+        """HTTP adapter — POSTs JSON to the configured REST endpoint asynchronously."""
         try:
-            import requests  # only needed if backend == "http"
+            import requests
         except ImportError:
             print("[Dispatcher] 'requests' not installed. Run: pip install requests")
             self._send_console(payload)
             return
 
-        response = requests.post(
-            config.DISPATCH_HTTP_URL,
-            json=payload,
-            timeout=5,
-        )
-        print(f"[Dispatcher] [OK] HTTP signal sent -> {config.DISPATCH_HTTP_URL} "
-              f"[{response.status_code}]")
+        def _do_post():
+            try:
+                response = requests.post(
+                    config.DISPATCH_HTTP_URL,
+                    json=payload,
+                    timeout=5,
+                )
+                print(f"[Dispatcher] [OK] HTTP signal sent -> {config.DISPATCH_HTTP_URL} [{response.status_code}]")
+            except Exception as e:
+                print(f"[Dispatcher] [ERROR] HTTP signal failed: {e}")
+
+        import threading
+        t = threading.Thread(target=_do_post)
+        t.daemon = True
+        t.start()
 
     # ------------------------------------------------------------------
     # MQTT initialisation (separate method for clarity)
