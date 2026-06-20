@@ -3,6 +3,7 @@ import argparse
 import time
 import sys
 from src.engine import SafetyPipelineEngine
+from src.session_labels import worker_label
 import src.config as config
 
 def render_annotations(frame_data):
@@ -38,7 +39,7 @@ def render_annotations(frame_data):
         cv2.rectangle(frame, (xmin, ymin), (xmax, ymax), color, 2)
         
         # Header tag background (three rows for labels)
-        worker_text = f"Worker {person.person_id}"
+        worker_text = worker_label(person.person_id)
         tag_text = f"{worker_text}"
         info_text = status_text
         details_text = f"{helmet_text} | {glasses_text}"
@@ -114,8 +115,13 @@ def render_annotations(frame_data):
         
     if frame_data.is_smoke_detected:
         cv2.rectangle(frame, (w - 330, 28), (w - 190, 48), (0, 0, 255), -1)
-        cv2.putText(frame, "FIRE/SMOKE HAZARD", (w - 320, 42), cv2.FONT_HERSHEY_SIMPLEX, 0.38, (255, 255, 255), 1)
+        cv2.putText(frame, "SMOKE WARNING", (w - 320, 42), cv2.FONT_HERSHEY_SIMPLEX, 0.38, (255, 255, 255), 1)
+        
+    if frame_data.is_fire_detected:
+        cv2.rectangle(frame, (w - 330, 28), (w - 190, 48), (0, 0, 255), -1)
+        cv2.putText(frame, "FIRE WARNING", (w - 320, 42), cv2.FONT_HERSHEY_SIMPLEX, 0.38, (255, 255, 255), 1)
 
+    
 def main():
     parser = argparse.ArgumentParser(description="Hackatum safety monitoring computer vision pipeline.")
     parser.add_argument("--mock", action="store_true", help="Run with simulated warehouse video and inputs")

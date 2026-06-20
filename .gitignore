@@ -3,3 +3,14 @@ runs/
 __pycache__/
 *.pyc
 .DS_Store
+
+# Camera captures and recordings — may contain identifiable persons
+camera_*.jpg
+camera_*.png
+*.mp4
+*.avi
+*.mkv
+data/
+recordings/
+.env
+.env.*
