@@ -320,9 +320,10 @@ class EnvironmentBehaviorMonitor:
             if cached is not None:
                 is_fallen = cached.get("is_fallen_raw", False)
             
-            # Aspect ratio fallback: if pose model wasn't run, or failed to detect a fall,
-            # we check the bounding box dimensions. Fallen people are wider than they are tall.
-            if not is_fallen:
+            # Aspect ratio fallback: ONLY run this if the advanced YOLO Pose model 
+            # is completely unavailable (e.g. mock mode or missing weights file). 
+            # If the pose model is loaded, we trust it unconditionally.
+            if not is_fallen and self.pose_model is None:
                 aspect_ratio = w / max(1, h)
                 if aspect_ratio > config.FALL_ASPECT_RATIO_THRESHOLD:
                     is_fallen = True

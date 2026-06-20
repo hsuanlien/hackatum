@@ -256,6 +256,12 @@ class PrivacyAnonymizer:
                     fxmax + side_pad,
                     fymax + bottom_pad,
                 )
+            else:
+                # Guaranteed Privacy Fallback: If the person is new and moving so fast 
+                # that the face detector is failing due to motion blur, aggressively 
+                # pixelate the top 25% of their body bounding box until it locks on.
+                fallback_ymax = ymin + int(person_h * 0.25)
+                self._censor_region(frame, xmin, ymin, xmax, fallback_ymax)
 
         # --- Local Tattoo Segmentation & Privacy Redaction ---
         if config.BLUR_TATOOS:
