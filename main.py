@@ -6,121 +6,111 @@ from src.engine import SafetyPipelineEngine
 from src.session_labels import worker_label
 import src.config as config
 
+def draw_corner_brackets(frame, xmin, ymin, xmax, ymax, color, thickness=2, length=15):
+    # Top-left
+    cv2.line(frame, (xmin, ymin), (xmin + length, ymin), color, thickness)
+    cv2.line(frame, (xmin, ymin), (xmin, ymin + length), color, thickness)
+    # Top-right
+    cv2.line(frame, (xmax, ymin), (xmax - length, ymin), color, thickness)
+    cv2.line(frame, (xmax, ymin), (xmax, ymin + length), color, thickness)
+    # Bottom-left
+    cv2.line(frame, (xmin, ymax), (xmin + length, ymax), color, thickness)
+    cv2.line(frame, (xmin, ymax), (xmin, ymax - length), color, thickness)
+    # Bottom-right
+    cv2.line(frame, (xmax, ymax), (xmax - length, ymax), color, thickness)
+    cv2.line(frame, (xmax, ymax), (xmax, ymax - length), color, thickness)
+
 def render_annotations(frame_data):
     """
-    Renders annotations, safety statuses, and HUD info onto the processed_frame.
+    Renders sleek, minimalist annotations, safety statuses, and HUD info onto the processed_frame.
     """
     frame = frame_data.processed_frame
     h, w = frame.shape[:2]
+    
+    # Optional overlay for translucent shapes
+    overlay = frame.copy()
+    
+    post_blend_text = []
     
     # 1. Draw Bounding Boxes and Labels for Tracked Persons
     for person in frame_data.persons:
         xmin, ymin, xmax, ymax = person.bbox
         
-        # Color coding: Red = Fall (Critical), Orange = Unsafe if missing PPE, Green = Safe
+        is_safe = True
+        status_text = f"ID {person.person_id}"
+        color = (200, 200, 200) # Soft white/gray for safe
+        
         if person.is_fallen:
-            color = (0, 0, 255)  # BGR Red
-            status_text = "FALL DETECTED!"
+            color = (0, 0, 255)  # Red
+            status_text = f"ID {person.person_id} | FALL DETECTED"
+            is_safe = False
         elif len(person.compliance_violations) > 0:
-            color = (0, 140, 255)  # BGR Orange
-            status_text = "UNSAFE"
+            color = (0, 140, 255)  # Orange
+            viols = []
+            if "Helmet" in person.compliance_violations: viols.append("NO HELMET")
+            if "Glasses" in person.compliance_violations: viols.append("NO GLASSES")
+            status_text = f"ID {person.person_id} | {','.join(viols)}"
+            is_safe = False
+
+        if is_safe:
+            # Minimalist corner brackets
+            draw_corner_brackets(frame, xmin, ymin, xmax, ymax, color, thickness=2, length=15)
+            # Small ID pill
+            (tw, th), _ = cv2.getTextSize(status_text, cv2.FONT_HERSHEY_SIMPLEX, 0.4, 2)
+            cv2.rectangle(overlay, (xmin, ymin - th - 8), (xmin + tw + 10, ymin), (0, 0, 0), -1)
+            post_blend_text.append((status_text, (xmin + 5, ymin - 4), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255, 255, 255), 1))
         else:
-            color = (0, 255, 0)  # BGR Green
-            status_text = "SAFE"
-
-        helmet_text = "Wears Helmet" if person.has_helmet else "No Helmet"
-        glasses_text = "Wears Glasses" if person.has_glasses else "No Glasses"
-        if person.has_helmet is None:
-            helmet_text = "Helmet: Unknown"
-        if person.has_glasses is None:
-            glasses_text = "Glasses: Unknown"
-
-        # Draw bounding box
-        cv2.rectangle(frame, (xmin, ymin), (xmax, ymax), color, 2)
-        
-        # Header tag background (three rows for labels)
-        worker_text = worker_label(person.person_id)
-        tag_text = f"{worker_text}"
-        info_text = status_text
-        details_text = f"{helmet_text} | {glasses_text}"
-        (tw, th), _ = cv2.getTextSize(details_text, cv2.FONT_HERSHEY_SIMPLEX, 0.4, 1)
-        (iw, ih), _ = cv2.getTextSize(info_text, cv2.FONT_HERSHEY_SIMPLEX, 0.4, 1)
-        (ww, wh), _ = cv2.getTextSize(worker_text, cv2.FONT_HERSHEY_SIMPLEX, 0.4, 1)
-        tag_width = max(tw, iw, ww)
-        total_height = th + ih + wh + 10
-        cv2.rectangle(frame, (xmin, ymin - total_height), (xmin + tag_width + 10, ymin), color, -1)
-        
-        # Draw header text
-        text_color = (0, 0, 0) if color in [(0, 255, 0), (0, 140, 255)] else (255, 255, 255)
-        y_offset = ymin - total_height + 16
-        cv2.putText(
-            frame,
-            worker_text,
-            (xmin + 5, y_offset),
-            cv2.FONT_HERSHEY_SIMPLEX,
-            0.4,
-            text_color,
-            1
-        )
-        cv2.putText(
-            frame,
-            details_text,
-            (xmin + 5, y_offset + wh),
-            cv2.FONT_HERSHEY_SIMPLEX,
-            0.35,
-            text_color,
-            1
-        )
-        cv2.putText(
-            frame,
-            info_text,
-            (xmin + 5, y_offset + wh + th),
-            cv2.FONT_HERSHEY_SIMPLEX,
-            0.35,
-            text_color,
-            1
-        )
-        
-    # 2. Draw Top HUD Bar (ROI-only overlay, no full-frame copy)
-    hud_h = 55
-    roi = frame[0:hud_h, 0:w]
-    overlay = roi.copy()
-    cv2.rectangle(overlay, (0, 0), (w, hud_h), (0, 0, 0), -1)
-    cv2.addWeighted(overlay, 0.65, roi, 0.35, 0, roi)
+            # Danger: Full thin box + translucent fill
+            cv2.rectangle(overlay, (xmin, ymin), (xmax, ymax), color, -1)
+            cv2.rectangle(frame, (xmin, ymin), (xmax, ymax), color, 2)
+            
+            # Danger ID pill
+            (tw, th), _ = cv2.getTextSize(status_text, cv2.FONT_HERSHEY_SIMPLEX, 0.4, 2)
+            cv2.rectangle(frame, (xmin, ymin - th - 8), (xmin + tw + 10, ymin), color, -1)
+            post_blend_text.append((status_text, (xmin + 5, ymin - 4), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255, 255, 255), 1))
+            
+    # Apply alpha blend for danger boxes and safe ID pills
+    cv2.addWeighted(overlay, 0.35, frame, 0.65, 0, frame)
     
+    # HUD Overlay (For top metrics and hazards)
+    hud_overlay = frame.copy()
+    
+    # 2. Draw Top Left Counters
+    stats_str = f"LIVE: {frame_data.current_people_count}   TOTAL: {frame_data.total_unique_people}"
+    (sw, sh), _ = cv2.getTextSize(stats_str, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 2)
+    cv2.rectangle(hud_overlay, (10, 10), (10 + sw + 20, 10 + sh + 16), (0, 0, 0), -1)
+    post_blend_text.append((stats_str, (20, 10 + sh + 8), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1))
+    
+    # 3. Draw Environmental Hazards (Top Right)
+    hazard_x = w - 10
+    if frame_data.is_smoke_detected:
+        text = "FIRE / SMOKE"
+        (hw, hh), _ = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 2)
+        cv2.rectangle(hud_overlay, (hazard_x - hw - 20, 10), (hazard_x, 10 + hh + 16), (0, 0, 255), -1)
+        post_blend_text.append((text, (hazard_x - hw - 10, 10 + hh + 8), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1))
+        hazard_x -= (hw + 30)
+        
+    if frame_data.is_image_blurry:
+        text = "BLUR / FOG"
+        (hw, hh), _ = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 2)
+        cv2.rectangle(hud_overlay, (hazard_x - hw - 20, 10), (hazard_x, 10 + hh + 16), (0, 140, 255), -1)
+        post_blend_text.append((text, (hazard_x - hw - 10, 10 + hh + 8), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1))
+        hazard_x -= (hw + 30)
+
+    cv2.addWeighted(hud_overlay, 0.65, frame, 0.35, 0, frame)
+    
+    # Draw all crisp text over the blended overlays
+    for text, pos, font, scale, color, thick in post_blend_text:
+        cv2.putText(frame, text, pos, font, scale, color, thick)
+        
+    # 4. System stats (Bottom Right, muted, no background pill)
     fps = frame_data.extra_metadata.get("fps", 0)
     latency = frame_data.extra_metadata.get("latency_ms", 0)
-    stage_ms = frame_data.extra_metadata.get("stage_ms", {})
-    slowest = frame_data.extra_metadata.get("slowest_stage", "")
-    slowest_ms = stage_ms.get(slowest, 0) if slowest else 0
     mode_label = "FAST" if config.FAST_MODE else "SMOOTH" if config.SMOOTH_MODE else "STD"
+    perf_str = f"FPS: {fps} | Latency: {latency}ms | {mode_label}"
     
-    # Title
-    cv2.putText(frame, "MTU WORKER MONITORING SYSTEM", (15, 20), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (255, 255, 255), 2)
-    # Counters
-    stats_str = f"Live Count: {frame_data.current_people_count} | Cumulative Unique: {frame_data.total_unique_people}"
-    cv2.putText(frame, stats_str, (15, 42), cv2.FONT_HERSHEY_SIMPLEX, 0.42, (200, 200, 200), 1)
-    
-    # System stats
-    perf_str = f"FPS: {fps} | {latency}ms | {mode_label}"
-    cv2.putText(frame, perf_str, (w - 280, 20), cv2.FONT_HERSHEY_SIMPLEX, 0.42, (100, 255, 100), 1)
-    if slowest:
-        stage_str = f"Slowest: {slowest} ({slowest_ms}ms)"
-        cv2.putText(frame, stage_str, (w - 280, 42), cv2.FONT_HERSHEY_SIMPLEX, 0.38, (180, 220, 180), 1)
-    
-    # 3. Draw Environmental Quality Overlays
-    if frame_data.is_image_blurry:
-        cv2.rectangle(frame, (w - 180, 28), (w - 15, 48), (0, 0, 255), -1)
-        cv2.putText(frame, "BLURRY / FOG WARNING", (w - 170, 42), cv2.FONT_HERSHEY_SIMPLEX, 0.38, (255, 255, 255), 1)
-        
-    if frame_data.is_smoke_detected:
-        cv2.rectangle(frame, (w - 330, 28), (w - 190, 48), (0, 0, 255), -1)
-        cv2.putText(frame, "SMOKE WARNING", (w - 320, 42), cv2.FONT_HERSHEY_SIMPLEX, 0.38, (255, 255, 255), 1)
-        
-    if frame_data.is_fire_detected:
-        cv2.rectangle(frame, (w - 330, 28), (w - 190, 48), (0, 0, 255), -1)
-        cv2.putText(frame, "FIRE WARNING", (w - 320, 42), cv2.FONT_HERSHEY_SIMPLEX, 0.38, (255, 255, 255), 1)
-
+    (pw, ph), _ = cv2.getTextSize(perf_str, cv2.FONT_HERSHEY_SIMPLEX, 0.35, 1)
+    cv2.putText(frame, perf_str, (w - pw - 10, h - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.35, (150, 150, 150), 1)
     
 def main():
     parser = argparse.ArgumentParser(description="Hackatum safety monitoring computer vision pipeline.")
