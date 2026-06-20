@@ -1,15 +1,14 @@
 """
-Zone map (B-lite): three vertical bands across the full camera frame.
+Zone map (B-lite): vertical bands across the full camera frame.
 
-Side-mounted camera: the entire feed is the workspace. Each person's bbox
-center (normalized 0-1) maps directly to safe (left) / work (center) /
-restricted (right). No manual calibration step.
+Press 'w' in main.py to cycle:
+  split (3 zones) -> full safe -> full work -> full restricted -> split ...
 """
 
 import json
 import os
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Dict, List, Optional, Tuple
 
 import cv2
@@ -20,6 +19,15 @@ from src.pipeline_types import FrameData, TrackedPerson
 from src.session_labels import worker_label
 
 RectNorm = Tuple[float, float, float, float]
+FULL_FRAME: RectNorm = (0.0, 0.0, 1.0, 1.0)
+
+LAYOUT_MODES = ("split", "all_safe", "all_work", "all_restricted")
+LAYOUT_LABELS = {
+    "split": "3 zones (safe | work | restricted)",
+    "all_safe": "Full frame: safe",
+    "all_work": "Full frame: work",
+    "all_restricted": "Full frame: restricted",
+}
 
 
 @dataclass
@@ -48,7 +56,6 @@ class ZoneDefinition:
 
 
 def person_frame_norm(person: TrackedPerson, width: int, height: int) -> Tuple[float, float]:
-    """Bbox center in normalized frame coords — works for side cameras without visible feet."""
     xmin, ymin, xmax, ymax = person.bbox
     nx = (xmin + xmax) / 2.0 / max(1, width)
     ny = (ymin + ymax) / 2.0 / max(1, height)
@@ -65,7 +72,7 @@ def load_zones(path: Optional[str] = None) -> List[ZoneDefinition]:
         data = json.load(f)
 
     profile = data.get("profile", "unknown")
-    print(f"[ZoneMap] Loaded profile '{profile}' (auto frame) from {path}")
+    print(f"[ZoneMap] Loaded profile '{profile}' from {path}")
 
     zones = []
     for entry in data.get("zones", []):
@@ -97,46 +104,94 @@ def assign_zone(
     width: int,
     height: int,
     zones: List[ZoneDefinition],
+    split_mode: bool,
 ) -> ZoneDefinition:
     nx, ny = person_frame_norm(person, width, height)
     person.metadata["frame_x"] = round(nx, 3)
     person.metadata["frame_y"] = round(ny, 3)
-    person.metadata["zone_point"] = (
-        int(nx * width),
-        int(ny * height),
-    )
+    person.metadata["zone_point"] = (int(nx * width), int(ny * height))
+
+    if len(zones) == 1:
+        return zones[0]
 
     for zone in zones:
         if zone.contains(nx, ny):
             return zone
 
-    # Fallback: partition by horizontal position (left / center / right)
+    if not split_mode:
+        return zones[0]
+
     by_id = {z.id: z for z in zones}
     if nx < 0.2:
-        return by_id.get("safe") or by_id.get("hallway") or zones[-1]
+        return by_id.get("safe") or zones[-1]
     if nx < 0.75:
         return by_id.get("work_floor") or zones[-1]
     return by_id.get("restricted") or zones[0]
 
 
 class ZoneMonitor:
-    """Assigns persons to vertical frame zones (full camera feed)."""
+    """Assigns persons to frame zones; press 'w' to cycle layout."""
 
     def __init__(
         self,
         zones_path: Optional[str] = None,
-        use_mock: bool = False,
         camera_profile: Optional[str] = None,
     ):
-        self.use_mock = use_mock
         self.camera_profile = camera_profile or config.ZONES_PROFILE
         self._zones_path = zones_path or config.resolve_zones_path()
-        self.zones = load_zones(self._zones_path) if config.ZONES_ENABLED else []
+        self._base_zones = load_zones(self._zones_path) if config.ZONES_ENABLED else []
+        self._layout_mode = "split"
+        self.zones: List[ZoneDefinition] = []
         self._restricted_inside: Dict[int, bool] = {}
         self._alert_last_sent: Dict[Tuple[int, str], float] = {}
+        self._apply_layout()
 
-        if self.zones:
-            print("[ZoneMap] Auto frame mapping: full camera feed = zone layout")
+        if self._base_zones:
+            print(f"[ZoneMap] Layout: {LAYOUT_LABELS[self._layout_mode]} (press w to cycle)")
+
+    def _template(self, zone_id: str) -> Optional[ZoneDefinition]:
+        for zone in self._base_zones:
+            if zone.id == zone_id:
+                return zone
+        return None
+
+    def _full_frame_zone(self, template: ZoneDefinition) -> ZoneDefinition:
+        return replace(template, frame_rect_norm=FULL_FRAME)
+
+    def _apply_layout(self) -> None:
+        if not self._base_zones:
+            self.zones = []
+            return
+
+        if self._layout_mode == "split":
+            self.zones = list(self._base_zones)
+            return
+
+        template_id = {
+            "all_safe": "safe",
+            "all_work": "work_floor",
+            "all_restricted": "restricted",
+        }.get(self._layout_mode)
+
+        template = self._template(template_id) if template_id else None
+        if template is None:
+            self.zones = list(self._base_zones)
+            return
+
+        self.zones = [self._full_frame_zone(template)]
+
+    def cycle_layout(self) -> str:
+        idx = LAYOUT_MODES.index(self._layout_mode)
+        self._layout_mode = LAYOUT_MODES[(idx + 1) % len(LAYOUT_MODES)]
+        self._restricted_inside.clear()
+        self._apply_layout()
+        label = LAYOUT_LABELS[self._layout_mode]
+        print(f"[ZoneMap] Layout -> {label}")
+        return label
+
+    @property
+    def layout_label(self) -> str:
+        return LAYOUT_LABELS[self._layout_mode]
 
     def _debounced(self, person_id: int, alert_key: str) -> bool:
         now = time.time()
@@ -152,12 +207,15 @@ class ZoneMonitor:
             return frame_data
 
         h, w = frame_data.raw_frame.shape[:2]
+        split_mode = self._layout_mode == "split"
         frame_data.extra_metadata["zones_ready"] = True
+        frame_data.extra_metadata["zone_layout"] = self._layout_mode
+        frame_data.extra_metadata["zone_layout_label"] = self.layout_label
         active_ids = set()
 
         for person in frame_data.persons:
             active_ids.add(person.person_id)
-            zone = assign_zone(person, w, h, self.zones)
+            zone = assign_zone(person, w, h, self.zones, split_mode)
 
             person.metadata["zone_id"] = zone.id
             person.metadata["zone_label"] = zone.label
@@ -239,7 +297,6 @@ class ZoneMonitor:
 
 
 def draw_zones_overlay(frame: np.ndarray, frame_data: FrameData) -> None:
-    """Draw vertical zone bands across the full frame."""
     zones = frame_data.extra_metadata.get("zones")
     if not zones:
         return
@@ -268,3 +325,18 @@ def draw_zones_overlay(frame: np.ndarray, frame_data: FrameData) -> None:
             cv2.circle(frame, pt, 5, (0, 0, 0), 1)
 
     cv2.addWeighted(overlay, 0.12, frame, 0.85, 0, frame)
+
+    layout = frame_data.extra_metadata.get("zone_layout_label")
+    if layout:
+        h, w = frame.shape[:2]
+        hint = f"Zones: {layout}  |  w=cycle  q=quit"
+        cv2.putText(
+            frame,
+            hint,
+            (10, h - 12),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.42,
+            (220, 220, 220),
+            1,
+            cv2.LINE_AA,
+        )

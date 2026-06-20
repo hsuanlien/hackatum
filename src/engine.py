@@ -48,7 +48,6 @@ class SafetyPipelineEngine:
         self.privacy_stage = PrivacyAnonymizer(use_mock=use_mock)
         self.zone_monitor = ZoneMonitor(
             zones_path=resolved_zones,
-            use_mock=use_mock,
             camera_profile=camera_profile or config.ZONES_PROFILE,
         )
         self.dispatcher = RobotDispatcher()
@@ -174,6 +173,10 @@ class SafetyPipelineEngine:
         frame_data.extra_metadata["slowest_stage"] = slowest
 
         return frame_data
+
+    def cycle_zone_layout(self) -> str:
+        """Cycle: 3 zones -> full safe -> full work -> full restricted."""
+        return self.zone_monitor.cycle_layout()
 
     def _read_camera_frame(self):
         if self._frame_grabber is not None:
