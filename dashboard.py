@@ -4,6 +4,7 @@ import numpy as np
 import pandas as pd
 import time
 from src.engine import SafetyPipelineEngine
+from src.session_labels import worker_label
 from main import render_annotations
 
 # Set page config
@@ -180,7 +181,7 @@ if run_pipeline:
                 glasses_symbol = "✅ Wearing" if p.has_glasses else "❌ Missing"
                 
                 manifest_data.append({
-                    "Worker ID": f"ID {p.person_id}",
+                    "Worker ID": worker_label(p.person_id),
                     "Posture Status": status_symbol,
                     "Hard Hat": helmet_symbol,
                     "Safety Eyewear": glasses_symbol

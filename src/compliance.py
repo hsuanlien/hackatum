@@ -2,6 +2,7 @@ import cv2
 import numpy as np
 
 from src.face_detection import SharedFaceDetector
+from src.session_labels import worker_label
 from src.pipeline_types import FrameData, TrackedPerson
 import src.config as config
 
@@ -240,7 +241,7 @@ class PPEComplianceChecker:
                 alert = {
                     "type": "PPE_VIOLATION",
                     "severity": "Warning",
-                    "message": f"Worker ID {person.person_id} is missing a {violation.lower()}!",
+                    "message": f"{worker_label(person.person_id)} is missing a {violation.lower()}!",
                     "person_id": person.person_id,
                     "timestamp": frame_data.timestamp,
                 }

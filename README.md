@@ -40,3 +40,35 @@ The pipeline runs up to **4 independent YOLO models** per frame:
 ### 2. Install Dependencies
 ```bash
 pip install -r requirements.txt
+```
+
+### 3. Run
+
+Live webcam (default camera):
+```bash
+python main.py
+```
+
+Simulation (no camera or models needed):
+```bash
+python main.py --mock
+```
+
+Streamlit dashboard:
+```bash
+streamlit run dashboard.py
+```
+
+## Privacy & security
+
+This system watches a real work area, so we kept a few things in mind:
+
+**Processing stays on the device.** Video runs through the pipeline locally. We are not sending a live feed to a cloud API as part of the default setup.
+
+**Faces are blurred before display.** The privacy stage runs on the output frame, so what you see in the OpenCV window or dashboard is anonymized. Detection still uses the raw frame in memory earlier in the pipeline — that is normal for this kind of system, but nothing is recorded unless you explicitly save it yourself (e.g. with `save_camera.py`).
+
+**Worker labels are session-only.** The UI shows opaque names like `Worker-A3F91C`, not employee IDs. They are only for counting and alerts during a run; we do not link them to HR records.
+
+**We try not to commit sensitive files.** `.gitignore` excludes camera snapshots, video dumps, and `.env` files so test footage does not end up in the repo by accident.
+
+For a production deployment at a site like MTU you would still need proper access control on the dashboard, retention policies, and a formal privacy review — but for the hackathon demo, the goal is: process locally, blur on screen, minimize what gets stored.

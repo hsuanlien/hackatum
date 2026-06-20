@@ -4,6 +4,7 @@ import os
 from typing import Dict, List, Tuple
 
 from ultralytics import YOLO
+from src.session_labels import worker_label
 from src.pipeline_types import FrameData, TrackedPerson
 import src.config as config
 
@@ -257,7 +258,7 @@ class EnvironmentBehaviorMonitor:
                     "type": "FALL_ALERT",
                     "severity": "Critical",
                     "message": (
-                        f"CRITICAL: Worker ID {person.person_id} is detected lying on the floor!"
+                        f"CRITICAL: {worker_label(person.person_id)} is detected lying on the floor!"
                     ),
                     "person_id": person.person_id,
                     "timestamp": frame_data.timestamp,

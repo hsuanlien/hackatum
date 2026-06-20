@@ -3,6 +3,7 @@ import argparse
 import time
 import sys
 from src.engine import SafetyPipelineEngine
+from src.session_labels import worker_label
 import src.config as config
 
 def render_annotations(frame_data):
@@ -38,7 +39,7 @@ def render_annotations(frame_data):
         cv2.rectangle(frame, (xmin, ymin), (xmax, ymax), color, 2)
         
         # Header tag background (three rows for labels)
-        worker_text = f"Worker {person.person_id}"
+        worker_text = worker_label(person.person_id)
         tag_text = f"{worker_text}"
         info_text = status_text
         details_text = f"{helmet_text} | {glasses_text}"
