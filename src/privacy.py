@@ -43,12 +43,14 @@ class PrivacyAnonymizer:
             return False
 
         roi = frame[ymin:ymax, xmin:xmax]
-        kw, kh = config.PRIVACY_BLUR_KERNEL_SIZE
-        kw = kw if kw % 2 == 1 else kw + 1
-        kh = kh if kh % 2 == 1 else kh + 1
-
-        blurred_roi = cv2.GaussianBlur(roi, (kw, kh), 0)
-        frame[ymin:ymax, xmin:xmax] = blurred_roi
+        pixel_size = getattr(config, "PRIVACY_PIXELATION_SIZE", 15)
+        
+        if roi.shape[0] < pixel_size or roi.shape[1] < pixel_size:
+            return True
+            
+        small = cv2.resize(roi, (max(1, roi.shape[1] // pixel_size), max(1, roi.shape[0] // pixel_size)), interpolation=cv2.INTER_LINEAR)
+        pixelated = cv2.resize(small, (roi.shape[1], roi.shape[0]), interpolation=cv2.INTER_NEAREST)
+        frame[ymin:ymax, xmin:xmax] = pixelated
         return True
 
     def _garfield_region(self, frame: np.ndarray, xmin: int, ymin: int, xmax: int, ymax: int):
@@ -129,11 +131,13 @@ class PrivacyAnonymizer:
         if not np.any(mask):
             return False
 
-        kw, kh = config.PRIVACY_BLUR_KERNEL_SIZE
-        kw = kw if kw % 2 == 1 else kw + 1
-        kh = kh if kh % 2 == 1 else kh + 1
-        blurred_roi = cv2.GaussianBlur(roi, (kw, kh), 0)
-        roi[mask] = blurred_roi[mask]
+        pixel_size = getattr(config, "PRIVACY_PIXELATION_SIZE", 15)
+        if roi.shape[0] < pixel_size or roi.shape[1] < pixel_size:
+            return True
+            
+        small = cv2.resize(roi, (max(1, roi.shape[1] // pixel_size), max(1, roi.shape[0] // pixel_size)), interpolation=cv2.INTER_LINEAR)
+        pixelated = cv2.resize(small, (roi.shape[1], roi.shape[0]), interpolation=cv2.INTER_NEAREST)
+        roi[mask] = pixelated[mask]
         return True
 
     def _to_relative_bbox(self, face_bbox, person_bbox):
@@ -163,8 +167,9 @@ class PrivacyAnonymizer:
     def _update_face_cache(self, person_id: int, relative_bbox):
         cached = self.face_cache.get(person_id)
         if cached is not None:
-            alpha = float(config.PRIVACY_FACE_SMOOTHING_ALPHA)
-            alpha = max(0.0, min(alpha, 1.0))
+            # We bypass the smoothing alpha completely when FAST_MODE limits face detect intervals,
+            # ensuring the censor instantly snaps to the worker's tracked body movement without lagging.
+            alpha = 1.0
             relative_bbox = alpha * relative_bbox + (1.0 - alpha) * cached["bbox"]
 
         self.face_cache[person_id] = {
