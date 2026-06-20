@@ -11,6 +11,9 @@ camera_*.png
 *.avi
 *.mkv
 data/
+# Replay artifacts must stay local (never commit)
+data/replays/
+data/replays/**
 recordings/
 .env
 .env.*
