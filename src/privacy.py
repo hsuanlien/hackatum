@@ -9,6 +9,7 @@ sys.modules.setdefault("sounddevice", None)
 import mediapipe as mp
 import numpy as np
 from src.pipeline_types import FrameData, TrackedPerson
+from src.tattoo import TattooDetector, build_tattoo_rois
 import src.config as config
 
 class PrivacyAnonymizer:
@@ -20,6 +21,7 @@ class PrivacyAnonymizer:
         # Short-lived face locations keyed only by anonymous person ID. Bounding
         # boxes are stored relative to the person box, never as face images.
         self.face_cache = {}
+        self.tattoo_detector = None
         if not use_mock:
             print("[Privacy] Loading MediaPipe face detector.")
             self.face_detector = mp.solutions.face_detection.FaceDetection(
@@ -27,6 +29,13 @@ class PrivacyAnonymizer:
                 min_detection_confidence=0.5,
                 # model_selection=1, 
             )
+
+            if config.BLUR_TATOOS:
+                try:
+                    print(f"[Privacy] Loading local tattoo model: {config.TATTOO_MODEL_PATH}")
+                    self.tattoo_detector = TattooDetector()
+                except Exception as error:
+                    print(f"[Privacy] Tattoo model unavailable: {error}")
         else:
             print("[Privacy] Running in MOCK mode.")
             self.face_detector = None
@@ -53,6 +62,35 @@ class PrivacyAnonymizer:
         
         blurred_roi = cv2.GaussianBlur(roi, (kw, kh), 0)
         frame[ymin:ymax, xmin:xmax] = blurred_roi
+
+    def _blur_masked_region(self, frame, bbox, mask):
+        """Blur only mask-selected pixels inside a full-frame bounding box."""
+        xmin, ymin, xmax, ymax = bbox
+        h, w = frame.shape[:2]
+        xmin = max(0, min(int(xmin), w))
+        ymin = max(0, min(int(ymin), h))
+        xmax = max(0, min(int(xmax), w))
+        ymax = max(0, min(int(ymax), h))
+
+        if xmax <= xmin or ymax <= ymin:
+            return
+
+        roi = frame[ymin:ymax, xmin:xmax]
+        if mask.shape != roi.shape[:2]:
+            mask = cv2.resize(
+                mask.astype(np.uint8),
+                (roi.shape[1], roi.shape[0]),
+                interpolation=cv2.INTER_NEAREST,
+            ).astype(bool)
+
+        if not np.any(mask):
+            return
+
+        kw, kh = config.PRIVACY_BLUR_KERNEL_SIZE
+        kw = kw if kw % 2 == 1 else kw + 1
+        kh = kh if kh % 2 == 1 else kh + 1
+        blurred_roi = cv2.GaussianBlur(roi, (kw, kh), 0)
+        roi[mask] = blurred_roi[mask]
 
     def _to_relative_bbox(self, face_bbox, person_bbox):
         """Convert an absolute face box to person-relative coordinates."""
@@ -201,15 +239,38 @@ class PrivacyAnonymizer:
                     fymax + bottom_pad,
                 )
             
-            # --- Tattoos & Exposed Skin Blurring (Optional Hackathon Stage) ---
-            # If someone has exposed arms where tattoos might be, apply a light blur.
-            # We look at the middle height of the bounding box (arms region).
-            # Tattoos can be toggled via config or metadata.
-            if person.metadata.get("has_exposed_tattoo", False):
-                # Blur arm region (heuristic: middle third of person height)
-                arm_ymin = ymin + int(person_h * 0.3)
-                arm_ymax = ymin + int(person_h * 0.7)
-                self._blur_region(frame, xmin, arm_ymin, xmax, arm_ymax)
+            # --- Local Tattoo Segmentation & Privacy Redaction ---
+            if config.BLUR_TATOOS:
+                for limb_roi in build_tattoo_rois(person, detection_frame.shape):
+                    limb_xmin, limb_ymin, limb_xmax, limb_ymax = limb_roi["bbox"]
+                    limb_crop = detection_frame[
+                        limb_ymin:limb_ymax,
+                        limb_xmin:limb_xmax,
+                    ]
+
+                    try:
+                        if self.tattoo_detector is None:
+                            raise RuntimeError("Tattoo detector is not initialized")
+
+                        tattoo_mask = self.tattoo_detector.detect_mask(limb_crop)
+                        self._blur_masked_region(
+                            frame,
+                            limb_roi["bbox"],
+                            tattoo_mask,
+                        )
+                    except Exception as error:
+                        print(
+                            f"[Privacy] Tattoo inference failed for worker "
+                            f"{person.person_id}: {error}"
+                        )
+                        if config.TATTOO_FAIL_CLOSED:
+                            self._blur_region(
+                                frame,
+                                limb_xmin,
+                                limb_ymin,
+                                limb_xmax,
+                                limb_ymax,
+                            )
 
         # Age cache entries even when a tracked person briefly disappears.
         for person_id in list(self.face_cache):

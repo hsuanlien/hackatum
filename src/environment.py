@@ -103,7 +103,15 @@ class EnvironmentBehaviorMonitor:
                             # Extract coordinates and confidence of keypoints (17 points, shape [1, 17, 2])
                             kpts = pose_results.keypoints.xy[0].cpu().numpy()
                             kpt_conf = pose_results.keypoints.conf[0].cpu().numpy() if hasattr(pose_results.keypoints, 'conf') else None
-                            person.keypoints = kpts
+
+                            # Pose inference runs on a crop of the person. Publish
+                            # full-frame coordinates so downstream privacy and
+                            # visualization stages share one coordinate system.
+                            global_kpts = kpts.copy()
+                            global_kpts[:, 0] += pxmin
+                            global_kpts[:, 1] += pymin
+                            person.keypoints = global_kpts
+                            person.metadata["keypoint_confidence"] = kpt_conf
                             
                             # COCO Poses:
                             # Shoulder left/right: 5, 6

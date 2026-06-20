@@ -3,6 +3,7 @@ import argparse
 import time
 import sys
 from src.engine import SafetyPipelineEngine
+import src.config as config
 
 def render_annotations(frame_data):
     """
@@ -44,7 +45,7 @@ def render_annotations(frame_data):
             (0, 0, 0) if color == (0, 255, 0) or color == (0, 140, 255) else (255, 255, 255), 
             1
         )
-        
+
     # 2. Draw Top HUD Bar
     hud_bg = frame.copy()
     cv2.rectangle(hud_bg, (0, 0), (w, 55), (0, 0, 0), -1)
