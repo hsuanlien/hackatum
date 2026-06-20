@@ -9,6 +9,8 @@ A real-time, multi-stage Computer Vision pipeline built to enhance warehouse and
 - **Fall Detection**: Analyzes human pose (shoulders/hips) using YOLO-Pose to detect workers lying on the floor.
 - **Environmental Safety**: Monitors camera quality (blur/smudges) and detects smoke/fire using a dedicated YOLO model.
 - **Privacy Anonymization**: Automatically blurs faces and optionally blurs exposed tattoos.
+
+- **Robot Dispatch & MQTT Integration**: Sends structured JSON signals (fall, restricted entry, no helmet, fire/smoke) to a robot team via MQTT. Includes a built‑in robot simulator and a live browser dashboard.
 - **Mock Simulation Engine**: Generates synthetic warehouse scenes and workers—perfect for testing without a camera or ML models.
 - **Interactive Dashboard**: Real-time monitoring UI built with **Streamlit**.
 - **Live Video Support**: Works with USB webcams, IP cameras, or local video files.
@@ -70,6 +72,11 @@ python main.py --zones-file zones/my_calibrated.json
 Streamlit dashboard:
 ```bash
 streamlit run dashboard.py
+```
+
+Robot Simulator (run in a separate terminal):
+```bash
+python robot_sim.py
 ```
 
 ## Privacy & security
