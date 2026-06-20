@@ -333,7 +333,7 @@ def render_annotations(frame_data):
 
     fps = frame_data.extra_metadata.get("fps", 0)
     lat = frame_data.extra_metadata.get("latency_ms", 0)
-    stats_text = f"LIVE: {frame_data.current_people_count} | FPS: {fps} | LAT: {lat}ms"
+    stats_text = f"LIVE: {frame_data.current_people_count} | TOTAL: {frame_data.total_unique_people} | FPS: {fps} | LAT: {lat}ms"
     (tw, th), _ = cv2.getTextSize(stats_text, cv2.FONT_HERSHEY_SIMPLEX, font_scale, 1)
     cv2.rectangle(frame, (x_left, y_top), (x_left + tw + 10, y_top + th + 10), (0, 0, 0), -1)
     cv2.putText(frame, stats_text, (x_left + 5, y_top + th + 5), cv2.FONT_HERSHEY_SIMPLEX, font_scale, (200, 200, 200), 1, cv2.LINE_AA)
