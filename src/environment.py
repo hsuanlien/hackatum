@@ -16,8 +16,11 @@ class EnvironmentBehaviorMonitor:
         
         if not use_mock:
             self.pose_model = None
+            self.smoke_fire_model = None  # <-- Initialize variable
             try:
                 from ultralytics import YOLO
+
+                # --- A. Load Pose Model ---
                 pose_path = "yolov8n-pose.pt"
                 # If the pose weight file is in root, load it
                 if os.path.exists(pose_path):
@@ -25,13 +28,27 @@ class EnvironmentBehaviorMonitor:
                     self.pose_model = YOLO(pose_path)
                 else:
                     print("[Environment] 'yolov8n-pose.pt' weights not found. Bounding box fallback active for fall detection.")
+                
+                # --- B. Load Custom Fire/Smoke Model ---                 
+                root_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+                smoke_fire_path = os.path.join(root_dir, "models/fire_smoke.pt")
+
+                if os.path.exists(smoke_fire_path):
+                    print(f"[Environment] Loading Fire/Smoke Model from: {smoke_fire_path}")
+                    self.smoke_fire_model = YOLO(smoke_fire_path)
+                else:
+                    print(f"[Environment] Fire/Smoke model not found at: {smoke_fire_path}")
+                    self.smoke_fire_model = None
+               
             except Exception as e:
                 print(f"[Environment] Could not initialize YOLO Pose model: {e}")
                 self.pose_model = None
+                self.smoke_fire_model = None
         else:
             print("[Environment] Running in MOCK mode.")
             self.pose_model = None
-
+            self.smoke_fire_model = None
+                  
     def process(self, frame_data: FrameData) -> FrameData:
         """
         Conveyor belt stage:
@@ -59,8 +76,37 @@ class EnvironmentBehaviorMonitor:
         else:
             frame_data.blur_score = 50.0
 
-        # --- 2. Environment Smoke & Fire (Placeholder for YOLO custom class) ---
-        if frame_data.is_smoke_detected:
+        # --- 2. Environment Smoke & Fire (Real YOLO custom class integration) ---
+        if not self.use_mock and self.smoke_fire_model is not None and frame_data.raw_frame.size > 0:
+            # Run model inference on the current raw image frame
+            sf_results = self.smoke_fire_model(frame_data.raw_frame, verbose=False)[0]
+            
+            # Check if any bounding boxes were detected (fire or smoke)
+            if len(sf_results.boxes) > 0:
+                frame_data.is_smoke_detected = True
+                
+                # Loop through the detected items to see what was found
+                for box in sf_results.boxes:
+                    cls_id = int(box.cls[0])
+                    class_name = sf_results.names[cls_id]  # Will dynamically get 'smoke' or 'fire'
+                    confidence = float(box.conf[0])
+                    
+                    # Only trigger an alert if confidence passes a sensible threshold (e.g., 40%)
+                    if confidence >= 0.40:
+                        alert = {
+                            "type": "ENVIRONMENT_ALERT",
+                            "severity": "Critical",
+                            "message": f"DANGER: {class_name.upper()} detected in visual feed! (Confidence: {confidence:.2f})",
+                            "timestamp": frame_data.timestamp
+                        }
+                        frame_data.alerts.append(alert)
+                        
+                        # Break after the first detection to avoid spamming the alerts list 
+                        # with 5 alerts if there are multiple smoke clusters in one frame.
+                        break 
+                        
+        elif self.use_mock and frame_data.is_smoke_detected:
+            # Fallback for mock mode testing
             alert = {
                 "type": "ENVIRONMENT_ALERT",
                 "severity": "Critical",
