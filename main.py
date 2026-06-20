@@ -1,7 +1,6 @@
 import cv2
 import argparse
 import time
-import sys
 from src.engine import SafetyPipelineEngine
 from src.session_labels import worker_label
 from src.zone_map import draw_zones_overlay
@@ -193,8 +192,7 @@ def main():
     
     print("\n" + "="*50)
     print("MTU Pipeline Engine Active.")
-    print("Press 'q' in the window to quit.")
-    print("Consuming feed...")
+    print("Press 'w' to cycle zone layout, 'q' to quit.")
     print("="*50 + "\n")
     
     try:
@@ -212,10 +210,12 @@ def main():
             # Display image
             cv2.imshow("MTU Room Monitor", frame_data.processed_frame)
             
-            # Read keyboard quit input
-            if cv2.waitKey(1) & 0xFF == ord('q'):
+            key = cv2.waitKey(1) & 0xFF
+            if key == ord("q"):
                 print("\nShutdown command received. Closing stream.")
                 break
+            if key == ord("w"):
+                engine.cycle_zone_layout()
                 
     except KeyboardInterrupt:
         print("\nShutdown via keyboard interrupt.")

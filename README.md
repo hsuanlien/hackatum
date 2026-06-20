@@ -1,87 +1,59 @@
 # MTU Smart Safety Monitoring System
 
-A real-time, multi-stage Computer Vision pipeline built to enhance warehouse and industrial safety. The system detects workers, checks PPE compliance (helmets/glasses), monitors for environmental hazards (smoke/fire/fog), detects falls, and automatically anonymizes faces for privacy—all running in a modular conveyor-belt pipeline.
+A real-time, multi-stage Computer Vision pipeline for warehouse and industrial safety: person tracking, PPE compliance, zone-aware alerts, fall/smoke detection, privacy blur, and MQTT robot dispatch.
 
 ## Features
 
-- **Person Detection & Re-ID**: Tracks unique workers across frames using YOLO + ByteTrack, with CNN-based Re-Identification (Re-ID).
-- **PPE Compliance**: Detects safety helmets and glasses using a custom YOLO model, with a color-heuristic fallback.
-- **Fall Detection**: Analyzes human pose (shoulders/hips) using YOLO-Pose to detect workers lying on the floor.
-- **Environmental Safety**: Monitors camera quality (blur/smudges) and detects smoke/fire using a dedicated YOLO model.
-- **Privacy Anonymization**: Automatically blurs faces and optionally blurs exposed tattoos.
-- **Mock Simulation Engine**: Generates synthetic warehouse scenes and workers—perfect for testing without a camera or ML models.
-- **Interactive Dashboard**: Real-time monitoring UI built with **Streamlit**.
-- **Live Video Support**: Works with USB webcams, IP cameras, or local video files.
-- **Zone-aware compliance (B-lite)**: Image-space zones (`zones.json`) with per-zone PPE rules, restricted-area entry alerts, and real `zone_id` on MQTT dispatch.
+- **Person Detection & Re-ID**: YOLO + ByteTrack with CNN Re-ID
+- **PPE Compliance**: Custom YOLO model + heuristic fallback
+- **Zone-aware compliance**: Full-frame zones with per-area PPE rules and `zone_id` on MQTT dispatch
+- **Fall / smoke / fire**: Pose-based falls and environmental YOLO
+- **Privacy**: Face blur on display output
+- **Mock mode**: Synthetic warehouse scene for demos without a camera
+- **Robot dashboard**: `robot_dashboard.html` subscribes to HiveMQ dispatch topic
 
-## System Architecture
+## Pipeline stages
 
-The pipeline processes every frame through four sequential stages:
+1. **Tracker** (`tracker.py`) — people + persistent IDs  
+2. **PPE** (`ppe_inference.py`) — helmets & glasses  
+3. **Compliance** (`compliance.py`) — heuristic fallback  
+4. **Zones** (`zone_map.py`) — safe / work / restricted rules  
+5. **Environment** (`environment.py`) — blur, smoke, fire, falls  
+6. **Privacy** (`privacy.py`) — anonymized output frame  
 
-1. **Tracker Stage** (`tracker.py`): Detects people and assigns persistent IDs.
-2. **Compliance Stage** (`compliance.py`): Checks helmets and glasses.
-3. **Zone Stage** (`zone_map.py`): Assigns workers to camera-space zones and applies zone-specific rules.
-4. **Environment Stage** (`environment.py`): Checks image quality, smoke/fire, and detects falls.
-5. **Privacy Stage** (`privacy.py`): Anonymizes faces/tattoos on the processed frame.
+## Run
 
-The pipeline runs up to **4 independent YOLO models** per frame:
-- `yolov8s.pt` → People
-- `yolov8n-pose.pt` → Human pose (fall detection)
-- `models/ppe_model.pt` (or heuristic fallback) → Helmets & Glasses
-- `fire_smoke.pt` → Smoke & Fire
-
-
-
-## Getting Started
-
-### 1. Prerequisites
-- Python 3.8+
-- pip
-
-
-### 2. Install Dependencies
 ```bash
 pip install -r requirements.txt
-```
 
-### 3. Run
-
-Live webcam (default camera):
-```bash
-python main.py
-```
-
-Simulation (no camera or models needed):
-```bash
-python main.py --mock
-```
-
-Zones use the **full camera frame** automatically (no calibration step). Side-mounted camera: left = safe, center = work, right = restricted. Zone is chosen from the person's bbox center.
-
-```bash
+# Live camera
 python main.py --source 0
-```
 
-Custom zone file:
-```bash
-python main.py --zones-file zones/my_calibrated.json
-```
+# Mock demo (no camera)
+python main.py --mock
 
-Streamlit dashboard:
-```bash
+# Streamlit dashboard
 streamlit run dashboard.py
 ```
 
+### Zone layouts
+
+Zones cover the **full camera frame** (side-mounted camera). Default: **left = safe**, **center = work**, **right = restricted**.
+
+| Key | Action |
+|-----|--------|
+| `w` | Cycle layout: 3 zones → full safe → full work → full restricted |
+| `q` | Quit |
+
+Configs live in `zones/monitor.json` and `zones/rover.json`. Override with `--zones-file` or `--camera-profile rover`.
+
 ## Privacy & security
 
-This system watches a real work area, so we kept a few things in mind:
+- Processing runs **on device**; no cloud video upload by default  
+- Faces are **blurred** before display  
+- UI shows session labels like `Worker-A3F91C`, not employee IDs  
+- `.gitignore` excludes camera dumps and `.env` files  
 
-**Processing stays on the device.** Video runs through the pipeline locally. We are not sending a live feed to a cloud API as part of the default setup.
+## Robot dispatch
 
-**Faces are blurred before display.** The privacy stage runs on the output frame, so what you see in the OpenCV window or dashboard is anonymized. Detection still uses the raw frame in memory earlier in the pipeline — that is normal for this kind of system, but nothing is recorded unless you explicitly save it yourself (e.g. with `save_camera.py`).
-
-**Worker labels are session-only.** The UI shows opaque names like `Worker-A3F91C`, not employee IDs. They are only for counting and alerts during a run; we do not link them to HR records.
-
-**We try not to commit sensitive files.** `.gitignore` excludes camera snapshots, video dumps, and `.env` files so test footage does not end up in the repo by accident.
-
-For a production deployment at a site like MTU you would still need proper access control on the dashboard, retention policies, and a formal privacy review — but for the hackathon demo, the goal is: process locally, blur on screen, minimize what gets stored.
+Set `DISPATCH_BACKEND = "mqtt"` in `src/config.py`. Open `robot_dashboard.html` on any machine to receive alerts (`FALL_DETECTED`, `RESTRICTED_ENTRY`, `NO_HELMET`, etc.) with real `zone_id`.

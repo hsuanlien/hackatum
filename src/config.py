@@ -98,24 +98,15 @@ DATA_DIR = os.path.join(BASE_DIR, "data")
 # --- Zone map (B-lite) ---
 ZONES_ENABLED = True
 ZONES_DIR = os.path.join(BASE_DIR, "zones")
-# Profile: "monitor" (fixed cam / mock) or "rover" (on-robot camera). Override via CLI or ZONES_PROFILE env.
 ZONES_PROFILE = os.environ.get("ZONES_PROFILE", "monitor")
-ZONES_CONFIG_PATH = os.path.join(ZONES_DIR, f"{ZONES_PROFILE}.json")
-# Legacy fallback if profile file missing
-ZONES_LEGACY_PATH = os.path.join(BASE_DIR, "zones.json")
 
 
 def resolve_zones_path(profile: Optional[str] = None, explicit_path: Optional[str] = None) -> str:
-    """Pick zone JSON: explicit --zones-file wins, then profile, then legacy zones.json."""
+    """Pick zone JSON: explicit --zones-file wins, else zones/{profile}.json."""
     if explicit_path:
         return explicit_path
     name = profile or ZONES_PROFILE
-    candidate = os.path.join(ZONES_DIR, f"{name}.json")
-    if os.path.exists(candidate):
-        return candidate
-    if os.path.exists(ZONES_LEGACY_PATH):
-        return ZONES_LEGACY_PATH
-    return candidate
+    return os.path.join(ZONES_DIR, f"{name}.json")
 
 # --- Alert Debouncing ---
 # Minimum seconds between repeated console prints / robot dispatches for the
