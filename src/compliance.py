@@ -1,5 +1,7 @@
 import cv2
 import numpy as np
+import time
+from typing import Dict, Tuple
 
 from src.face_detection import SharedFaceDetector
 from src.pipeline_types import FrameData, TrackedPerson
@@ -13,6 +15,10 @@ class PPEComplianceChecker:
         Primary PPE detection is done upstream by SharedPPEDetector in the engine.
         """
         self.use_mock = use_mock
+        # Debounce map: (person_id, violation) -> last alert timestamp
+        # Prevents the same violation from spamming the console / robot dispatcher
+        # every frame. Keyed by (person_id, violation_name).
+        self._alert_last_sent: Dict[Tuple[int, str], float] = {}
 
     def _detect_helmet_heuristic(self, frame: np.ndarray, bbox: list) -> bool:
         """
@@ -215,18 +221,26 @@ class PPEComplianceChecker:
                         person.has_helmet = self._detect_helmet_heuristic(
                             frame_data.raw_frame, person.bbox
                         )
+                        # Only cache freshly computed heuristic results
+                        person.metadata["cached_helmet"] = person.has_helmet
                     elif "cached_helmet" in person.metadata:
                         person.has_helmet = person.metadata["cached_helmet"]
+
                 if not person.has_glasses:
                     if run_heuristics:
                         person.has_glasses = self._detect_glasses_heuristic(
                             frame_data, person
                         )
+                        # Only cache freshly computed heuristic results
+                        person.metadata["cached_glasses"] = person.has_glasses
                     elif "cached_glasses" in person.metadata:
                         person.has_glasses = person.metadata["cached_glasses"]
 
-                person.metadata["cached_helmet"] = person.has_helmet
-                person.metadata["cached_glasses"] = person.has_glasses
+                # Always persist positives so PPE model can't reset a confirmed detection
+                if person.has_helmet:
+                    person.metadata["cached_helmet"] = True
+                if person.has_glasses:
+                    person.metadata["cached_glasses"] = True
 
             violations = []
             if not person.has_helmet:
@@ -236,15 +250,28 @@ class PPEComplianceChecker:
 
             person.compliance_violations = violations
 
+            now = frame_data.timestamp
+            debounce = config.ALERT_DEBOUNCE_SECONDS
+
             for violation in violations:
+                debounce_key = (person.person_id, violation)
+                last_sent = self._alert_last_sent.get(debounce_key, 0.0)
+
+                # Always attach the alert dict so downstream (dashboard) can see state
                 alert = {
                     "type": "PPE_VIOLATION",
                     "severity": "Warning",
                     "message": f"Worker ID {person.person_id} is missing a {violation.lower()}!",
                     "person_id": person.person_id,
-                    "timestamp": frame_data.timestamp,
+                    "timestamp": now,
+                    # Flag lets main.py / dispatcher know whether to surface this
+                    "debounced": debounce > 0 and (now - last_sent) < debounce,
                 }
                 frame_data.alerts.append(alert)
+
+                # Update the debounce timer for non-debounced alerts
+                if not alert["debounced"]:
+                    self._alert_last_sent[debounce_key] = now
 
         return frame_data
 

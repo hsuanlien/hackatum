@@ -31,7 +31,7 @@ class PersonTracker:
         if not use_mock:
             print(f"[Tracker] Initializing YOLO model: {config.YOLO_MODEL_PATH}")
             self.model = YOLO(config.YOLO_MODEL_PATH)
-            self.tracker = sv.ByteTrack()
+            self.tracker = sv.ByteTrack(lost_track_buffer=150)
             
             # Re-ID database: maps persistent_id -> deque of visual embeddings (max 50, auto-evicts oldest)
             self.embedding_cache: Dict[int, Deque[np.ndarray]] = {}
@@ -187,9 +187,9 @@ class PersonTracker:
             # Compute cosine similarity against every stored embedding for this person
             scores = [self._cosine_similarity(new_embedding, cached_emb) for cached_emb in embeddings]
             
-            # Rank scores and average the top-3 to smooth out noise
-            top_scores = sorted(scores, reverse=True)[:3]
-            candidate_score = sum(top_scores) / len(top_scores)
+            # Using the maximum score provides better scale invariance.
+            # If the new embedding matches at least one cached embedding strongly, it's a match.
+            candidate_score = max(scores) if scores else 0.0
             
             if candidate_score > best_score:
                 best_score = candidate_score
@@ -358,7 +358,23 @@ class PersonTracker:
         frame_data.current_people_count = len(active_persons)
         frame_data.total_unique_people = len(self.confirmed_ids)
         self._last_persons_snapshot = active_persons
-        
+
+        # Periodically prune stale ByteTrack IDs to prevent memory growth.
+        # ByteTrack assigns monotonically increasing IDs — old entries never
+        # disappear on their own, causing gradual dict bloat over long sessions.
+        if self._frame_counter % config.TRACKER_PRUNE_INTERVAL == 0:
+            active_track_ids = set()
+            if detections.tracker_id is not None:
+                active_track_ids = set(detections.tracker_id.tolist())
+            stale_track_ids = [
+                tid for tid in list(self.track_id_to_persistent_id.keys())
+                if tid not in active_track_ids
+            ]
+            for tid in stale_track_ids:
+                self.track_id_to_persistent_id.pop(tid, None)
+                self._track_stable_frames.pop(tid, None)
+                # Do NOT remove from _last_embeddings — ReID still needs those
+
         return frame_data
 
 if __name__ == "__main__":

@@ -6,6 +6,7 @@ from typing import Dict, List, Tuple
 from ultralytics import YOLO
 from src.pipeline_types import FrameData, TrackedPerson
 import src.config as config
+import time
 
 
 class EnvironmentBehaviorMonitor:
@@ -19,6 +20,7 @@ class EnvironmentBehaviorMonitor:
         self._frame_counter = 0
         self._last_smoke_detected = False
         self._last_person_pose: Dict[int, dict] = {}
+        self._alert_last_sent: Dict[str, float] = {}
 
         if not use_mock:
             self.pose_model = None
@@ -56,13 +58,21 @@ class EnvironmentBehaviorMonitor:
     def _run_smoke_detection(self, frame_data: FrameData) -> None:
         if self.use_mock:
             if frame_data.is_smoke_detected:
+                now = frame_data.timestamp
+                debounce = config.ALERT_DEBOUNCE_SECONDS
+                last_sent = self._alert_last_sent.get("smoke", 0.0)
+                is_debounced = debounce > 0 and (now - last_sent) < debounce
+                
                 alert = {
                     "type": "ENVIRONMENT_ALERT",
                     "severity": "Critical",
                     "message": "DANGER: Smoke / Fire fumes detected in visual feed!",
-                    "timestamp": frame_data.timestamp,
+                    "timestamp": now,
+                    "debounced": is_debounced,
                 }
                 frame_data.alerts.append(alert)
+                if not is_debounced:
+                    self._alert_last_sent["smoke"] = now
             return
 
         run_smoke = (self._frame_counter - 1) % config.SMOKE_INFERENCE_INTERVAL == 0
@@ -73,27 +83,42 @@ class EnvironmentBehaviorMonitor:
             and frame_data.raw_frame.size > 0
         ):
             sf_results = self.smoke_fire_model(frame_data.raw_frame, **self._yolo_kwargs())[0]
-            self._last_smoke_detected = len(sf_results.boxes) > 0
+
+            # Bug fix: only count boxes that actually exceed the confidence threshold.
+            # Previously len(boxes) > 0 was used, which fired on any detection regardless
+            # of confidence, causing the smoke state to persist via _last_smoke_detected.
+            confident_boxes = [
+                box for box in sf_results.boxes
+                if float(box.conf[0]) >= config.SMOKE_CONF_THRESHOLD
+            ]
+            self._last_smoke_detected = len(confident_boxes) > 0
             frame_data.is_smoke_detected = self._last_smoke_detected
 
             if self._last_smoke_detected:
-                for box in sf_results.boxes:
+                for box in confident_boxes:
                     cls_id = int(box.cls[0])
                     class_name = sf_results.names[cls_id]
                     confidence = float(box.conf[0])
+                    
+                    now = frame_data.timestamp
+                    debounce = config.ALERT_DEBOUNCE_SECONDS
+                    last_sent = self._alert_last_sent.get("smoke", 0.0)
+                    is_debounced = debounce > 0 and (now - last_sent) < debounce
 
-                    if confidence >= 0.40:
-                        alert = {
-                            "type": "ENVIRONMENT_ALERT",
-                            "severity": "Critical",
-                            "message": (
-                                f"DANGER: {class_name.upper()} detected in visual feed! "
-                                f"(Confidence: {confidence:.2f})"
-                            ),
-                            "timestamp": frame_data.timestamp,
-                        }
-                        frame_data.alerts.append(alert)
-                        break
+                    alert = {
+                        "type": "ENVIRONMENT_ALERT",
+                        "severity": "Critical",
+                        "message": (
+                            f"DANGER: {class_name.upper()} detected in visual feed! "
+                            f"(Confidence: {confidence:.2f})"
+                        ),
+                        "timestamp": now,
+                        "debounced": is_debounced,
+                    }
+                    frame_data.alerts.append(alert)
+                    if not is_debounced:
+                        self._alert_last_sent["smoke"] = now
+                    break
         else:
             frame_data.is_smoke_detected = self._last_smoke_detected
 
@@ -215,13 +240,29 @@ class EnvironmentBehaviorMonitor:
     def process(self, frame_data: FrameData) -> FrameData:
         self._frame_counter += 1
 
+        # Gate Laplacian blur check — runs every COMPLIANCE_HEURISTIC_INTERVAL frames
+        # instead of every frame. Laplacian on a 640x480 frame costs ~3-5ms and blur
+        # doesn't change meaningfully between adjacent frames.
+        run_blur = (self._frame_counter - 1) % config.COMPLIANCE_HEURISTIC_INTERVAL == 0
+
         if frame_data.raw_frame.size > 0:
-            gray = cv2.cvtColor(frame_data.raw_frame, cv2.COLOR_BGR2GRAY)
-            blur_val = float(cv2.Laplacian(gray, cv2.CV_64F).var())
+            if run_blur:
+                gray = cv2.cvtColor(frame_data.raw_frame, cv2.COLOR_BGR2GRAY)
+                blur_val = float(cv2.Laplacian(gray, cv2.CV_64F).var())
+                self._last_blur_val = blur_val
+            else:
+                blur_val = getattr(self, "_last_blur_val", 50.0)
+
             frame_data.blur_score = blur_val
 
             if blur_val < config.BLUR_LAPLACIAN_THRESHOLD:
                 frame_data.is_image_blurry = True
+                
+                now = frame_data.timestamp
+                debounce = config.ALERT_DEBOUNCE_SECONDS
+                last_sent = self._alert_last_sent.get("blur", 0.0)
+                is_debounced = debounce > 0 and (now - last_sent) < debounce
+
                 alert = {
                     "type": "ENVIRONMENT_WARNING",
                     "severity": "Warning",
@@ -229,9 +270,12 @@ class EnvironmentBehaviorMonitor:
                         f"Visual degradation detected! Image is blurry or obscured "
                         f"(Score: {blur_val:.1f})"
                     ),
-                    "timestamp": frame_data.timestamp,
+                    "timestamp": now,
+                    "debounced": is_debounced,
                 }
                 frame_data.alerts.append(alert)
+                if not is_debounced:
+                    self._alert_last_sent["blur"] = now
         else:
             frame_data.blur_score = 50.0
 
@@ -253,6 +297,12 @@ class EnvironmentBehaviorMonitor:
 
         for person in frame_data.persons:
             if person.is_fallen:
+                now = frame_data.timestamp
+                debounce = config.ALERT_DEBOUNCE_SECONDS
+                debounce_key = f"fall_{person.person_id}"
+                last_sent = self._alert_last_sent.get(debounce_key, 0.0)
+                is_debounced = debounce > 0 and (now - last_sent) < debounce
+
                 alert = {
                     "type": "FALL_ALERT",
                     "severity": "Critical",
@@ -260,8 +310,11 @@ class EnvironmentBehaviorMonitor:
                         f"CRITICAL: Worker ID {person.person_id} is detected lying on the floor!"
                     ),
                     "person_id": person.person_id,
-                    "timestamp": frame_data.timestamp,
+                    "timestamp": now,
+                    "debounced": is_debounced,
                 }
                 frame_data.alerts.append(alert)
+                if not is_debounced:
+                    self._alert_last_sent[debounce_key] = now
 
         return frame_data

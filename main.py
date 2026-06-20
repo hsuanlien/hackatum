@@ -144,8 +144,9 @@ def main():
             # Print console logs for active alerts (just for terminal feedback)
             if frame_data.alerts:
                 for alert in frame_data.alerts:
-                    print(f"[{time.strftime('%H:%M:%S', time.localtime(alert['timestamp']))}] "
-                          f"[{alert['severity']}] {alert['message']}")
+                    if not alert.get("debounced", False):
+                        print(f"[{time.strftime('%H:%M:%S', time.localtime(alert['timestamp']))}] "
+                              f"[{alert['severity']}] {alert['message']}")
             
             # Display image
             cv2.imshow("MTU Room Monitor", frame_data.processed_frame)

@@ -74,12 +74,23 @@ KEYPOINT_CONFIDENCE_THRESHOLD = 0.35 # Minimum confidence for pose keypoints to 
 FALL_ASPECT_RATIO_THRESHOLD = 1.75   # Width/height ratio threshold for aspect ratio fallback detection
 
 # --- Re-Identification settings (Person 2) ---
-REID_COSINE_SIMILARITY_THRESHOLD = 0.78  # Balanced threshold: strict enough to separate similar uniforms, loose enough to match re-entries
+REID_COSINE_SIMILARITY_THRESHOLD = 0.72  # Balanced threshold: strict enough to separate similar uniforms, loose enough to match re-entries
 
 # --- Directory Paths ---
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 MODELS_DIR = os.path.join(BASE_DIR, "models")
 DATA_DIR = os.path.join(BASE_DIR, "data")
+
+# --- Alert Debouncing ---
+# Minimum seconds between repeated console prints / robot dispatches for the
+# same person + violation type. Eliminates the per-frame spam you see in the
+# terminal. Set to 0 to disable debouncing (show every alert).
+ALERT_DEBOUNCE_SECONDS = 5
+
+# --- Tracker Maintenance ---
+# How often (in detection frames) to prune stale ByteTrack IDs from internal
+# dicts. ByteTrack IDs are monotonically increasing so old ones accumulate.
+TRACKER_PRUNE_INTERVAL = 500
 
 # --- Robot Dispatch ---
 # Identity
