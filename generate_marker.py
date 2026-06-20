@@ -27,4 +27,5 @@ def generate_marker(marker_id=0, size_px=400, output_dir="data"):
     print("You can open this image and display it full screen on your phone or tablet!")
 
 if __name__ == "__main__":
-    generate_marker(0)
+    for marker_id in range(4):
+        generate_marker(marker_id)

@@ -438,7 +438,7 @@ def main():
 
     print("\n" + "=" * 50)
     print("MTU Pipeline Engine Active.")
-    print("Press 'g' to toggle Garfield face censorship, 'q' to quit.")
+    print("Press 'w' to cycle zone layouts (demo), 'g' for Garfield faces, 'q' to quit.")
     print("=" * 50 + "\n")
 
     cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
@@ -466,12 +466,19 @@ def main():
             cv2.imshow(window_name, frame_data.processed_frame)
 
             key = cv2.waitKey(1) & 0xFF
-            if key == ord("g"):
+            if key == ord("w"):
+                label = engine.cycle_zone_layout()
+                print(f"[ZoneMap] {label}")
+            elif key == ord("g"):
                 config.PRIVACY_CENSORSHIP_MODE = (
                     "garfield" if config.PRIVACY_CENSORSHIP_MODE == "blur" else "blur"
                 )
-                print(f"[Privacy] Face censorship: {config.PRIVACY_CENSORSHIP_MODE}")
-            if key == ord("q"):
+                mode = config.PRIVACY_CENSORSHIP_MODE
+                if mode == "garfield" and not os.path.exists(config.GARFIELD_IMAGE_PATH):
+                    print(f"[Privacy] Garfield image missing at {config.GARFIELD_IMAGE_PATH}")
+                else:
+                    print(f"[Privacy] Face censorship: {mode}")
+            elif key == ord("q"):
                 print("\nShutdown command received. Closing stream.")
                 break
 

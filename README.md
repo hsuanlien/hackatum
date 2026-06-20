@@ -1,167 +1,168 @@
 # MTU Smart Safety Monitoring
 
-Real-time computer vision for an industrial floor: count people, check PPE, spot falls and fire, blur faces, and ping a rover when something goes wrong.
+Real-time computer vision for an industrial floor: count people, check PPE, spot falls and fire, blur faces, and ping a rover when something goes wrong. Safety rules depend on *where* you are, not just *whether* you're wearing gear.
 
-Built for a hackathon around **MTU Aero Engines** — factory and MRO environments where safety rules depend on *where* you are, not just *whether* you're wearing gear.
+Built for **MTU Aero Engines** at Hackatum.
 
 ---
 
-## The problem we picked
+## The problem
 
-Fixed cameras (or a rover cam) see a live floor. Supervisors need to know:
+A fixed camera (or rover cam) watches a live floor. Supervisors need to know:
 
-- How many people are in the area (without double-counting when someone walks out and back in)
-- Whether PPE matches the zone — helmet in the work floor, nothing required in the break area, full kit near restricted machinery
+- How many people are here (without double-counting when someone leaves and comes back)
+- Whether PPE matches the zone: helmet and glasses on the work floor, relaxed rules in safe areas, nobody in restricted bays
 - Falls, smoke/fire, and camera blind spots
-- That workers on screen are not identifiable in the UI
+- That workers on screen are not identifiable
 
-We are five people, no SLAM stack, one afternoon for hardware. So we aimed for something that **works live**, tells a clear story, and could grow into a real MTU deployment later.
-
----
-
-## What you see in the demo
-
-| Piece | What it does |
-|-------|----------------|
-| **OpenCV window** (`main.py`) | Live feed with zone overlays, worker labels, PPE status, hazards |
-| **Streamlit** (`dashboard.py`) | Same pipeline in the browser + supervisor replay clips |
-| **Robot dashboard** (`robot_dashboard.html`) | MQTT alert board + fake rover ETA (no install, just open the file) |
-| **Robot sim** (`robot_sim.py`) | Pretends to drive to the incident when an alert fires |
-
-The HUD shows **LIMITED** when vision quality is poor (blur/noise) — critical alerts still dispatch; non-critical robot pings are throttled.
-
-**Backup:** record a short screen capture of mock + dashboard + robot sim. Live demo is better; video saves you if Wi‑Fi or the webcam dies.
+We are five people and had one afternoon for hardware. No time for a full SLAM stack or floor-plan calibration on site.
 
 ---
 
-## Design decisions (why it looks like this)
+## How we ended up here
 
-### Zone-aware compliance
+We did not start with ArUco markers on phones. The path looked more like this:
 
-Safety rules depend on *where* someone is, not just what they are wearing.
+1. **Core pipeline** consisting of multiple challenges, like tracking people (YOLO + ByteTrack), checking PPE, watching for falls and fire, bluring faces on output, dispatching alerts over MQTT to a dummy rover and creating a browser dashboard. That had to run on a laptop CPU, so we built `SMOOTH_MODE` and `FAST_MODE` (smaller models, skip heavy frames, async camera grab).
 
-**Choice:** per-zone PPE rules and entry alerts live in `zones/*.json`; `zone_map.py` assigns each tracked person a `zone_id` from their position in the frame. MQTT dispatch carries that ID so the rover knows where to go.
+2. **Zones were the hard part**. MTU cares about *location*. Our first version used static vertical bands in `zones/*.json` (left safe · centre work · right restricted). It was simple enough, but it felt glued to the camera, so if you remount the cam the “factory” moves.
 
-**Trade-off:** zone geometry is config-driven — edit JSON without touching the pipeline. A production install would map zones to a real floor plan; the same `zone_id` contract stays.
+3. **ArUco was the pragmatic leap** and we wanted to *show* different zone layouts live (all yellow, red/green splits, etc.) without a floor map. Someone flashed a fiducial on a phone, we wired OpenCV ArUco detection into `zone_map.py`. Marker ID picks which wall you are facing; estimated distance picks “close” vs “far” layout. The layout sticks when the marker leaves frame so the demo does not flicker. Markers live on phones for now (hopefully we will get to print them). Not production-grade, but it tells the zone story on the exhibition floor.
 
-### One pipeline, several models, one CPU
+4. **Hard lessons from running it live**. Smoke detection fired too often; we slowed inference intervals and added multi-frame alert verification (`alert_filter.py`) plus a **LIMITED** HUD mode when the image is blurry or noisy (critical alerts still go out; PPE spam to the robot is throttled). PPE heuristics falsely called bare hair “helmet”; we now trust the YOLO model when it says there is *no* helmet.
 
-The engine runs up to four YOLO passes (people, PPE, pose, fire/smoke) plus MediaPipe for faces. On a laptop CPU that is a lot.
+5. **Robot handoff without a server**. We use public MQTT (HiveMQ) + `robot_dashboard.html` opened in any browser + `robot_sim.py`. You will hopefully see the full loop: vision → dispatch → rover ETA.
 
-**Choice:** `FAST_MODE` in `config.py` — smaller input size, skip frames on the heavy stages, one shared PPE model pass per N frames, async frame grab so inference does not stall the camera.
+6. **Demo polish**: press **`w`** to cycle zone layouts if markers are awkward; press **`g`** for a little Easter egg. Supervisor replay clips land in `data/replays/` for critical events.
 
-**Trade-off:** slightly choppier detections, much better FPS. `SMOOTH_MODE` exists if you have GPU headroom.
-
-### PPE: model first, heuristics second
-
-Custom `ppe_model.pt` for helmets and goggles. Yellow-vest check is HSV on the torso. Glasses fallback uses face landmarks + edge density.
-
-**Gotcha we hit:** a color-based “helmet” heuristic on bare hair kept saying helmet OK. We now **trust the YOLO model when it says no helmet** and only run the color check when the model did not run at all.
-
-### Graceful degradation when vision is noisy
-
-Blur, fog, or flickering detections can spam alerts. The engine tracks sustained quality issues and switches to **LIMITED reliability mode** (visible on the HUD). Critical incidents — falls, restricted entry, fire/smoke — still dispatch; warning-level robot pings are suppressed until vision stabilizes. Alerts must also persist for N frames (`alert_filter.py`) before they become confirmed incidents.
-
-### Privacy by default on output
-
-Detection uses the raw frame in memory (normal for CV). **Display** goes through the privacy stage — faces blurred before `imshow` or Streamlit. Logs use `Worker-A3F91C` style labels (`session_labels.py`), not employee IDs.
-
-Critical events can save a short replay to `data/replays/` (supervisor clip, not a full shift recording).
-
-### Robot handoff over MQTT
-
-No custom server for the hackathon. Pipeline publishes JSON to HiveMQ public broker; `robot_dashboard.html` and `robot_sim.py` subscribe in the browser / Python.
-
-Alert types: `FALL_DETECTED`, `RESTRICTED_ENTRY`, `NO_HELMET`, `NO_GLASSES`, `NO_VEST`, `FIRE_DETECTED`, `SMOKE_DETECTED` — each with real `zone_id` from the zone stage, not a hardcoded bay name.
-
-**Trade-off:** public broker is fine for a demo; production would use a private broker and auth.
+That is the product: a hackathon system that is honest about its limits but hopefully **works live** and points clearly at a real MTU rollout.
 
 ---
 
-## Architecture
+## Evaluation map
+
+You asked for innovation, technical depth, and clear communication. Here is where to look in this repo for each.
+
+### Innovation & creativity (40%)
+
+| What you care about | What we did |
+|------------------------|-------------|
+| **Originality** | Zone-dependent safety on a single camera feed, tied to a rover dispatch loop, not just “detect helmet yes/no” |
+| **Unique approach** | **ArUco markers on phones** swap coloured zone layouts (green / yellow / red) without SLAM or a CAD floor plan |
+| **Unconventional tech** | MQTT to a static HTML dashboard (no backend); Garfield sticker privacy mode; histogram Re-ID for headcount on CPU |
+| **WOW factor** | Live colour bands react to a phone marker; restricted entry pings the robot dashboard; `g` drops Garfield on your face |
+
+**Zone colours on the feed**
+
+| Colour | Meaning |
+|--------|---------|
+| **Green** | Safe, no PPE required |
+| **Yellow** | Work floor: helmet + glasses; vest checked but not required |
+| **Red** | Restricted entry alert! |
+
+Markers **0–3** = four walls of a demo cross layout. Distance < 2 m vs ≥ 2 m switches between two band layouts per wall. Person zone = bbox **foot point** inside the bands.
+
+### Technical implementation (40%)
+
+| What judges care about | What we did |
+|------------------------|-------------|
+| **Code quality** | Staged pipeline in `src/` (one file per concern); config centralised in `config.py`; this README documents behaviour |
+| **Complexity** | Up to 4 YOLO models + MediaPipe + ByteTrack + ArUco pose distance + alert verification + MQTT |
+| **Works as intended** | `main.py` (OpenCV), `dashboard.py` (Streamlit), `robot_sim.py` + `robot_dashboard.html` — see Quick start |
 
 ```
-Camera / mock
-    │
-    ▼
-┌─────────────┐   ByteTrack + Re-ID histogram (unique headcount)
-│  Tracker    │
-└──────┬──────┘
-       ▼
-┌─────────────┐   Shared PPE YOLO (helmet / goggles)
-│  PPE +      │   Compliance heuristics (vest, glasses fallback)
-│  Compliance │
-└──────┬──────┘
-       ▼
-┌─────────────┐   Zone rules + MQTT dispatch triggers
-│  Zone map   │   zones JSON → zone_id per person
-└──────┬──────┘
-       ▼
-┌─────────────┐   Fall, smoke/fire, blur/fog
-│ Environment │
-└──────┬──────┘
-       ▼
-┌─────────────┐   Face blur (+ optional tattoo blur) on output
-│  Privacy    │
-└──────┬──────┘
-       ▼
-┌─────────────┐   Confirm alerts over N frames
-│ Alert verify│
-└──────┬──────┘
-       ▼
-  main.py / dashboard UI          MQTT ──► robot_dashboard.html
-                                  └──► robot_sim.py
+Camera / mock → Tracker → PPE + Compliance → Zone map (ArUco) → Environment
+              → Privacy → Alert verify → UI + MQTT → robot dashboard / sim
 ```
 
 | Stage | File |
 |-------|------|
 | Orchestration | `src/engine.py` |
 | People + Re-ID | `src/tracker.py` |
-| PPE model | `src/ppe_inference.py` |
-| Heuristics + alerts | `src/compliance.py` |
-| Zones | `src/zone_map.py` |
-| Falls / environment | `src/environment.py` |
-| Blur | `src/privacy.py` |
+| PPE | `src/ppe_inference.py` |
+| Heuristics | `src/compliance.py` |
+| Zones + ArUco | `src/zone_map.py` |
+| Falls / smoke / blur | `src/environment.py` |
+| Face blur / Garfield | `src/privacy.py` |
+| Tattoo blur (prototype) | `src/tattoo.py` |
 | Alert verification | `src/alert_filter.py` |
-| MQTT out | `src/dispatcher.py` |
+| MQTT dispatch | `src/dispatcher.py` |
+| Marker PNG generator | `generate_marker.py` |
+
+### Presentation & communication (20%)
+
+| What judges care about | What we did |
+|------------------------|-------------|
+| **Clear pitch** | Two-minute outline below |
+| **Problem → solution story** | “How we ended up here” section above |
+| **Live engagement** | Run the demo; use `w` / `g` during Q&A; explain ArUco honestly as a prototype |
+
+**Two-minute pitch**
+
+1. **Problem** — factory zones have different PPE rules; one camera should enforce that and call a rover.
+2. **Trick** — CPU vision pipeline + ArUco on phones to swap layouts + MQTT to a rover.
+3. **Live** — show marker → bands change; step in red → dashboard + sim react; helmet off in yellow → alert; `g` for Garfield.
+4. **Next** — calibrated floor map, printed markers, private MQTT, models on the rover.
+
+**Likely Q&A**
+
+- *“Is this production-safe?”* — No. Demonstrator only; not certified.
+- *“Are zones real?”* — Prototype. ArUco + image bands, not MTU CAD. `zone_id` in MQTT is ready for a real map later.
+- *“Why public MQTT?”* — Zero setup for judges; any laptop can open the dashboard.
+- *“Why Garfield?”* — Privacy still works (blur under the sticker); memorable demo moment.
+
+---
+
+## What is implemented
+
+| Component | Status |
+|-----------|--------|
+| Live OpenCV UI | Zone overlay, labels, hazards, replay clips |
+| Streamlit dashboard | Same pipeline + tunable thresholds |
+| Robot dashboard + sim | MQTT alerts and fake rover ETA |
+| People + Re-ID | YOLO + ByteTrack + histogram Re-ID |
+| PPE | YOLO helmet/goggles + HSV vest |
+| Zones | ArUco-switched layouts; manual `w` cycle |
+| Environment | Falls, smoke/fire, blur detection |
+| Alert hygiene | Debounce, frame verification, LIMITED mode |
+| Privacy | Output blur, tattoo prototype, Garfield toggle |
+| MQTT | Fall, restricted entry, PPE, fire/smoke |
+
+**Not implemented:** calibrated floor geometry, printed marker rig, automated test suite, certified safety sign-off. `zones/monitor.json` is a legacy static layout; the live path is `src/zone_map.py` + ArUco.
 
 ---
 
 ## Quick start
 
-**Prerequisites:** Python 3.8+, webcam optional
-
 ```bash
 python -m venv .venv
-source .venv/bin/activate   # Windows: .venv\Scripts\activate
+source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-### Live camera
+### ArUco markers (phones)
 
 ```bash
-python main.py --source 0
+python generate_marker.py   # data/aruco_marker_id_0.png … _3.png
 ```
 
-### No camera (mock warehouse)
+Full-screen on a phone (max brightness, white border visible).
+
+### Live demo (recommended)
+
+```bash
+python robot_sim.py          # terminal 1
+python main.py --source 0    # terminal 2 — w / g / q
+# open robot_dashboard.html  # browser
+```
+
+### Mock (no camera)
 
 ```bash
 python main.py --mock
 ```
 
-### Full robot demo (three terminals + browser)
-
-```bash
-# 1 — fake rover
-python robot_sim.py
-
-# 2 — vision
-python main.py --mock    # or --source 0
-
-# 3 — open robot_dashboard.html in Chrome/Firefox
-```
-
-MQTT topics: `hackatum/robot/dispatch` (alerts), `hackatum/robot/status` (rover state).
+PPE and falls work; ArUco layout switching and Garfield need a real feed.
 
 ### Streamlit
 
@@ -169,54 +170,27 @@ MQTT topics: `hackatum/robot/dispatch` (alerts), `hackatum/robot/status` (rover 
 streamlit run dashboard.py
 ```
 
-### Zone configuration
-
-```bash
-python main.py --zones-file zones/monitor.json
-python main.py --camera-profile rover
-```
+MQTT topics: `hackatum/robot/dispatch`, `hackatum/robot/status`
 
 ---
 
-## Config knobs worth knowing
-
-All in `src/config.py`:
+## Config (`src/config.py`)
 
 - `FAST_MODE` / `SMOOTH_MODE` — CPU vs quality
-- `DISPATCH_BACKEND` — `mqtt` (default), `console`, or `http`
-- PPE and fire thresholds — tuned during the hackathon on real webcam footage
-- `ALERT_DEBOUNCE_SECONDS` — stops terminal/MQTT spam for the same violation
-- `ALERT_VERIFY_*` — frames required before an alert is confirmed
-- `RELIABILITY_*` — blur/noise thresholds for LIMITED mode
+- `PPE_*`, `SMOKE_*`, `FALL_*` — thresholds and frame intervals
+- `ALERT_DEBOUNCE_SECONDS`, `ALERT_VERIFY_*`, `RELIABILITY_*`
+- `PRIVACY_CENSORSHIP_MODE`, `GARFIELD_SCALE` — blur vs Garfield (`images/garfield.png`)
 
 ---
 
-## Privacy & security (hackathon scope)
+## Privacy & limits
 
-- Processing stays **on device**; default setup does not stream video to a cloud API.
-- Faces are blurred on **output** frames only.
-- Worker labels are **session-only** pseudonyms.
-- `data/replays/`, `.env`, and camera dumps are gitignored.
-
-A production MTU rollout would still need access control, retention policy, and a formal privacy review. This repo is a demonstrator, not a certified safety system.
-
----
-
-## Honest limits
-
-- Not certified for real safety decisions — demo / research quality.
-- Vest detection is color-heuristic; works on high-vis yellow, not every uniform.
-- Public MQTT broker — do not put sensitive data in payloads.
-- Zone geometry comes from `zones/*.json`; remount the camera and zones need re-tuning.
-
----
-
-## If you only have two minutes (pitch outline)
-
-1. **Problem** — industrial floors have zones with different PPE rules; one camera should enforce that and call for help.
-2. **Trick** — conveyor pipeline + live zone IDs + Re-ID counting + MQTT to a rover, all on CPU.
-3. **Live** — walk into restricted → dashboard screams → robot sim drives; remove helmet in work zone → PPE alert.
-4. **Next** — floor-plan zone mapping, private MQTT, edge deploy on the rover itself.
+- Processing on device; faces censored on **output** only; session pseudonyms (`Worker-A3F91C`).
+- Not certified for real safety decisions.
+- ArUco distance uses a synthetic camera matrix — demo accuracy only.
+- Vest = colour heuristic; smoke can false-positive — tune intervals if needed.
+- Public MQTT — no sensitive payloads.
+- Record a backup video if the live demo might fail.
 
 ---
 

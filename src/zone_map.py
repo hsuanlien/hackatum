@@ -307,3 +307,18 @@ def draw_zones_overlay(frame: np.ndarray, frame_data: FrameData) -> None:
             cv2.circle(frame, pt, 2, (255, 255, 255), -1)
 
     cv2.addWeighted(overlay, 0.15, frame, 0.85, 0, frame)
+
+    layout = frame_data.extra_metadata.get("zone_layout_label")
+    if layout:
+        h, w = frame.shape[:2]
+        hint = f"{layout}  |  w=cycle  g=garfield  q=quit"
+        cv2.putText(
+            frame,
+            hint,
+            (10, h - 12),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.42,
+            (220, 220, 220),
+            1,
+            cv2.LINE_AA,
+        )
