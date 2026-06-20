@@ -169,7 +169,12 @@ def render_annotations(frame_data):
 def main():
     parser = argparse.ArgumentParser(description="Hackatum safety monitoring computer vision pipeline.")
     parser.add_argument("--mock", action="store_true", help="Run with simulated warehouse video and inputs")
-    parser.add_argument("--source", type=str, default=None, help="Video source (e.g. '0' for webcam, or path to file)")
+    parser.add_argument(
+        "--source",
+        type=str,
+        default="0",
+        help="Video source: camera index (0, 1, …) or path to a video file",
+    )
     parser.add_argument(
         "--camera-profile",
         choices=["monitor", "rover"],
@@ -184,25 +189,27 @@ def main():
     )
     args = parser.parse_args()
     
-    # Initialize Engine
     source = args.source
-    if source is not None and source.isdigit():
+    if source.isdigit():
         source = int(source)
-        
-    engine = SafetyPipelineEngine(
-        use_mock=args.mock,
-        video_source=source,
-        camera_profile=args.camera_profile,
-        zones_path=args.zones_file,
-    )
-    stream = engine.stream_frames()
-    
-    print("\n" + "="*50)
-    print("MTU Pipeline Engine Active.")
-    print("Press 'w' to cycle zone layout, 'q' to quit.")
-    print("="*50 + "\n")
-    
+
+    engine = None
     try:
+        engine = SafetyPipelineEngine(
+            use_mock=args.mock,
+            video_source=source,
+            camera_profile=args.camera_profile,
+            zones_path=args.zones_file,
+        )
+        stream = engine.stream_frames()
+    
+        feed = "MOCK SIMULATION" if args.mock else f"LIVE CAMERA (source={engine.camera_source_label})"
+        print("\n" + "="*50)
+        print("MTU Pipeline Engine Active.")
+        print(f"Feed: {feed}")
+        print("Press 'w' to cycle zone layout, 'q' to quit.")
+        print("="*50 + "\n")
+    
         for frame_data in stream:
             # Add drawing layer
             render_annotations(frame_data)
@@ -223,11 +230,12 @@ def main():
                 break
             if key == ord("w"):
                 engine.cycle_zone_layout()
-                
+
     except KeyboardInterrupt:
         print("\nShutdown via keyboard interrupt.")
     finally:
-        engine.release()
+        if engine is not None:
+            engine.release()
         cv2.destroyAllWindows()
         print("Shutdown complete.")
 

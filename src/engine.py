@@ -3,7 +3,7 @@ import time
 from typing import Generator, Optional
 
 import src.config as config
-from src.capture import LatestFrameGrabber
+from src.capture import LatestFrameGrabber, camera_open_error_message, open_video_capture
 from src.compliance import PPEComplianceChecker
 from src.environment import EnvironmentBehaviorMonitor
 from src.face_detection import SharedFaceDetector
@@ -40,6 +40,20 @@ class SafetyPipelineEngine:
             f"zones: {resolved_zones}"
         )
 
+        self._frame_grabber: Optional[LatestFrameGrabber] = None
+        self.camera_source_label: Optional[str] = None
+        self.cap = None
+        self.mock_generator = None
+
+        # Open camera before loading models so we grab the device early and fail fast.
+        if not self.use_mock:
+            self.cap, self.camera_source_label = open_video_capture(video_source)
+            if self.cap is None:
+                raise RuntimeError(camera_open_error_message(video_source))
+            print(f"[PipelineEngine] Live camera ready (source={self.camera_source_label})")
+            if config.ASYNC_FRAME_GRAB:
+                self._frame_grabber = LatestFrameGrabber(self.cap)
+
         self.face_detector = SharedFaceDetector(use_mock=use_mock)
         self.tracker_stage = PersonTracker(use_mock=use_mock)
         self.ppe_detector = SharedPPEDetector(use_mock=use_mock)
@@ -51,31 +65,9 @@ class SafetyPipelineEngine:
             camera_profile=camera_profile or config.ZONES_PROFILE,
         )
         self.dispatcher = RobotDispatcher()
-        self._frame_grabber: Optional[LatestFrameGrabber] = None
 
         if self.use_mock:
             self.mock_generator = MockPipelineGenerator()
-            self.cap = None
-        else:
-            self.mock_generator = None
-            src = 0 if video_source is None else video_source
-            print(f"[PipelineEngine] Opening video source: {src}")
-            self.cap = cv2.VideoCapture(src)
-            if self.cap.isOpened() and config.CAMERA_MAX_WIDTH > 0:
-                self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, config.CAMERA_MAX_WIDTH)
-                self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, int(config.CAMERA_MAX_WIDTH * 0.75))
-                self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
-
-            if not self.cap.isOpened():
-                print(
-                    f"[PipelineEngine] Error: Could not open video source {src}. "
-                    "Falling back to MOCK mode."
-                )
-                self.use_mock = True
-                self.mock_generator = MockPipelineGenerator()
-                self.cap = None
-            elif config.ASYNC_FRAME_GRAB:
-                self._frame_grabber = LatestFrameGrabber(self.cap)
 
         if not self.use_mock:
             self._warmup_models()
