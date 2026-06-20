@@ -1,8 +1,9 @@
 """
-Zone Map: ArUco-Triggered State Machine
+Zone map — safety rules tied to regions in the camera image.
 
-Reads ArUco markers to change the 2D screen layout.
-Persists the layout even when the marker is out of view.
+ArUco markers switch the 2D zone layout (distance-based far/close modes per wall).
+The active layout persists when the marker leaves the frame. Bbox center picks the
+zone; rules differ per zone (PPE required or not, restricted entry alerts).
 """
 
 import time
@@ -231,19 +232,43 @@ class ZoneMonitor:
             else:
                 self._restricted_inside.pop(person.person_id, None)
 
-            viols = []
-            if zone.require_helmet and not person.has_helmet: viols.append("Helmet")
-            if zone.require_glasses and not person.has_glasses: viols.append("Glasses")
-            person.metadata["zone_violations"] = viols
+            zone_violations = []
+            if zone.require_helmet and person.has_helmet is not True:
+                zone_violations.append("Helmet")
+            if zone.require_glasses and person.has_glasses is not True:
+                zone_violations.append("Glasses")
+            if zone.id in ("work_floor", "restricted") and person.metadata.get("has_yellow_vest") is False:
+                zone_violations.append("Vest")
 
-            for v in viols:
-                if not self._debounced(person.person_id, f"zone_{zone.id}_{v}"):
-                    msg = f"{worker_label(person.person_id)} missing {v.lower()} in zone '{zone.label}'"
-                    frame_data.alerts.append({
-                        "type": "ZONE_PPE_VIOLATION", "severity": "Warning", "message": msg,
-                        "person_id": person.person_id, "zone_id": zone.id, "timestamp": frame_data.timestamp
-                    })
-                    if dispatcher: dispatcher.send(alert_type="NO_" + v.upper(), person_id=person.person_id, zone_id=zone.id)
+            person.metadata["zone_violations"] = zone_violations
+
+            for violation in zone_violations:
+                alert_key = f"zone_{zone.id}_{violation}"
+                if self._debounced(person.person_id, alert_key):
+                    continue
+
+                frame_data.alerts.append({
+                    "type": "ZONE_PPE_VIOLATION",
+                    "severity": "Warning",
+                    "message": (
+                        f"{worker_label(person.person_id)} missing {violation.lower()} "
+                        f"in zone '{zone.label}'"
+                    ),
+                    "person_id": person.person_id,
+                    "zone_id": zone.id,
+                    "timestamp": frame_data.timestamp,
+                })
+                if dispatcher is not None:
+                    alert_type = {
+                        "Helmet": "NO_HELMET",
+                        "Glasses": "NO_GLASSES",
+                        "Vest": "NO_VEST",
+                    }.get(violation, "ZONE_PPE_VIOLATION")
+                    dispatcher.send(
+                        alert_type=alert_type,
+                        person_id=person.person_id,
+                        zone_id=zone.id,
+                    )
 
         self._restricted_inside = {pid: v for pid, v in self._restricted_inside.items() if pid in active_ids}
         

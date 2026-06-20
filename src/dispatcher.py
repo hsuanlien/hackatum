@@ -1,16 +1,9 @@
 """
-dispatcher.py — Robot Dispatch Signal Module
-=============================================
-Sends a structured JSON signal to the robot team whenever a fall is detected
-in the vision pipeline.
+Publish safety alerts to the robot team (MQTT by default).
 
-Backend is pluggable via config.DISPATCH_BACKEND:
-  - "console"   → Print the payload to stdout (default, no dependencies)
-  - "mqtt"      → Publish to an MQTT topic via paho-mqtt
-  - "http"      → POST to a REST endpoint via requests
-
-For the hackathon demo, "mqtt" connects to the free HiveMQ public broker and
-the robot_dashboard.html file on any other laptop will receive the signal live.
+Payload is small JSON: team_id, zone_id, alert_type, person label. HiveMQ public
+broker + robot_dashboard.html means any laptop on the internet can show live
+dispatches without us running a server.
 """
 
 import json
@@ -28,15 +21,13 @@ class RobotDispatcher:
     
     Features:
       - Pluggable backends (console / mqtt / http)
-      - Per-person debouncing: once a person's fall triggers a dispatch,
-        the same person won't trigger another dispatch until the cooldown
-        expires (default: DISPATCH_COOLDOWN_SECONDS). This prevents the
-        robot from being spammed with duplicate commands for a single fall.
+      - Per-alert debouncing: the same person won't re-trigger the same
+        alert_type until DISPATCH_COOLDOWN_SECONDS expires.
     """
 
     def __init__(self):
         self.backend = config.DISPATCH_BACKEND
-        self._cooldown_map: dict[int, float] = {}  # person_id -> last dispatch timestamp
+        self._cooldown_map: dict[tuple[int, str], float] = {}  # (person_id, alert_type) -> last sent
         self._lock = threading.Lock()
 
         # Backend-specific initialisation
@@ -71,13 +62,13 @@ class RobotDispatcher:
         """
         with self._lock:
             now = time.time()
-            last_sent = self._cooldown_map.get(person_id, 0.0)
+            cooldown_key = (person_id, alert_type)
+            last_sent = self._cooldown_map.get(cooldown_key, 0.0)
 
-            # Debounce: skip if we dispatched for this person recently
             if now - last_sent < config.DISPATCH_COOLDOWN_SECONDS:
                 return False
 
-            self._cooldown_map[person_id] = now
+            self._cooldown_map[cooldown_key] = now
 
         payload = {
             "team_id": config.TEAM_ID,
@@ -170,8 +161,11 @@ class RobotDispatcher:
         try:
             import paho.mqtt.client as mqtt
         except ImportError:
-            print("[Dispatcher] 'paho-mqtt' not installed. Run: pip install paho-mqtt")
-            print("[Dispatcher] Falling back to console backend.")
+            print("\n" + "!" * 60)
+            print("  [Dispatcher] paho-mqtt NOT INSTALLED — MQTT disabled!")
+            print("  robot_dashboard.html will stay on STANDBY.")
+            print("  Fix:  pip install paho-mqtt")
+            print("!" * 60 + "\n")
             self.backend = "console"
             return
 

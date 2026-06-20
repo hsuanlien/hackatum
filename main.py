@@ -11,6 +11,8 @@ from src.session_labels import worker_label
 from src.zone_map import draw_zones_overlay
 import src.config as config
 
+SHOW_PPE_DEBUG = False
+
 
 class SupervisorReplayRecorder:
     def __init__(self, output_dir="data/replays", pre_seconds=5.0, post_seconds=5.0, cooldown_seconds=15.0):
@@ -186,42 +188,47 @@ class SupervisorReplayRecorder:
 
 def build_critical_event(frame_data):
     event_time = datetime.fromtimestamp(frame_data.timestamp).strftime("%H:%M:%S")
+    reliability_mode = str(frame_data.extra_metadata.get("reliability_mode", "NORMAL"))
+    confidence = "MEDIUM" if reliability_mode == "LIMITED" else "HIGH"
 
-    if frame_data.is_smoke_detected:
-        return {
-            "type": "FIRE/SMOKE",
-            "summary": f"Smoke/fire detected at {event_time} in camera view",
-            "where": "camera_view",
-            "who": "environment",
-            "confidence": "HIGH",
-            "action": "DISPATCH ROVER / EVACUATE",
-        }
+    for alert in frame_data.alerts:
+        alert_type = str(alert.get("type", ""))
+        severity = str(alert.get("severity", "")).upper()
 
-    for person in frame_data.persons:
-        if person.is_fallen:
-            zone = person.metadata.get("zone_label", "unknown")
+        if alert_type == "ENVIRONMENT_ALERT":
+            msg = str(alert.get("message", "")).upper()
+            if "SMOKE" in msg or "FIRE" in msg:
+                return {
+                    "type": "FIRE/SMOKE",
+                    "summary": f"Smoke/fire detected at {event_time} in camera view",
+                    "where": "camera_view",
+                    "who": "environment",
+                    "confidence": confidence,
+                    "action": "DISPATCH ROVER / EVACUATE",
+                }
+            continue
+
+        if alert_type == "FALL_ALERT":
+            person_id = alert.get("person_id", "unknown")
+            zone = alert.get("zone_id", "unknown")
             return {
                 "type": "FALL",
-                "summary": f"Worker {person.person_id} fell in zone {zone} at {event_time}",
+                "summary": f"Worker {person_id} fell in zone {zone} at {event_time}",
                 "where": zone,
-                "who": f"worker_{person.person_id}",
-                "confidence": "HIGH",
+                "who": f"worker_{person_id}",
+                "confidence": confidence,
                 "action": "CHECK WORKER NOW",
             }
 
-    for alert in frame_data.alerts:
-        if alert.get("debounced", False):
-            continue
-
-        if alert.get("severity") == "Critical" or alert.get("type") == "RESTRICTED_ENTRY":
+        if severity == "CRITICAL" or alert_type == "RESTRICTED_ENTRY":
             person_id = alert.get("person_id", "unknown")
             zone_id = alert.get("zone_id", "unknown")
             return {
-                "type": str(alert.get("type", "CRITICAL")).replace("_", " "),
+                "type": alert_type.replace("_", " ") if alert_type else "CRITICAL",
                 "summary": f"Worker {person_id} critical alert in zone {zone_id} at {event_time}",
                 "where": zone_id,
                 "who": f"worker_{person_id}",
-                "confidence": "HIGH",
+                "confidence": confidence,
                 "action": "DISPATCH ROVER",
             }
 
@@ -243,32 +250,40 @@ def draw_corner_brackets(frame, xmin, ymin, xmax, ymax, color, thickness=2, leng
 
 
 def render_annotations(frame_data):
-    """
-    Renders sleek, minimalist annotations grouped into a single HUD.
-    """
+    """Renders sleek, minimalist annotations grouped into a single HUD."""
     frame = frame_data.processed_frame
     h, w = frame.shape[:2]
 
-    # Draw zones (no text)
     draw_zones_overlay(frame, frame_data)
-    
+
     overlay = frame.copy()
     danger_area_count = 0
 
-    # 1. Draw simple Worker Bounding Boxes
     for person in frame_data.persons:
         xmin, ymin, xmax, ymax = person.bbox
         zone_id = person.metadata.get("zone_id", "safe")
-        
+        has_yellow_vest = person.metadata.get("has_yellow_vest")
+
         is_safe = True
         color = (0, 200, 0)
-        
-        if person.is_fallen or zone_id == "restricted":
+
+        if person.is_fallen:
+            is_safe = False
+            color = (0, 0, 255)
+            danger_area_count += 1
+        elif zone_id == "restricted":
             is_safe = False
             color = (0, 0, 255)
             danger_area_count += 1
         elif zone_id == "work_floor":
-            if not person.has_helmet or not person.has_glasses or not person.metadata.get("has_yellow_vest"):
+            violations = []
+            if person.has_helmet is not True:
+                violations.append("NO HELMET")
+            if person.has_glasses is not True:
+                violations.append("NO GLASSES")
+            if has_yellow_vest is False:
+                violations.append("NO VEST")
+            if violations:
                 is_safe = False
                 color = (0, 140, 255)
                 danger_area_count += 1
@@ -277,39 +292,56 @@ def render_annotations(frame_data):
             draw_corner_brackets(frame, xmin, ymin, xmax, ymax, color, thickness=1, length=10)
         else:
             cv2.rectangle(overlay, (xmin, ymin), (xmax, ymax), color, -1)
-            cv2.rectangle(frame, (xmin, ymin), (xmax, ymax), color, 1)
 
-        # Tiny worker ID
-        cv2.putText(frame, worker_label(person.person_id), (xmin, max(10, ymin - 4)), cv2.FONT_HERSHEY_SIMPLEX, 0.25, color, 1, cv2.LINE_AA)
+        cv2.putText(
+            frame,
+            worker_label(person.person_id),
+            (xmin, max(10, ymin - 4)),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.25,
+            color,
+            1,
+            cv2.LINE_AA,
+        )
 
     cv2.addWeighted(overlay, 0.2, frame, 0.8, 0, frame)
 
-    # 2. Minimalist Pill HUD (Top edge of screen)
     font_scale = 0.3
     y_top = 8
-    
-    # --- Top Left Pills ---
     x_left = 8
-    
-    # Stats Pill
+
     fps = frame_data.extra_metadata.get("fps", 0)
     lat = frame_data.extra_metadata.get("latency_ms", 0)
     stats_text = f"LIVE: {frame_data.current_people_count} | FPS: {fps} | LAT: {lat}ms"
     (tw, th), _ = cv2.getTextSize(stats_text, cv2.FONT_HERSHEY_SIMPLEX, font_scale, 1)
     cv2.rectangle(frame, (x_left, y_top), (x_left + tw + 10, y_top + th + 10), (0, 0, 0), -1)
     cv2.putText(frame, stats_text, (x_left + 5, y_top + th + 5), cv2.FONT_HERSHEY_SIMPLEX, font_scale, (200, 200, 200), 1, cv2.LINE_AA)
-    
+
     x_left += tw + 15
-    
-    # Mode Pill
+
     layout = frame_data.extra_metadata.get("zone_layout_label", "MODE: UNKNOWN")
     (tw, th), _ = cv2.getTextSize(layout, cv2.FONT_HERSHEY_SIMPLEX, font_scale, 1)
     cv2.rectangle(frame, (x_left, y_top), (x_left + tw + 10, y_top + th + 10), (0, 0, 0), -1)
     cv2.putText(frame, layout, (x_left + 5, y_top + th + 5), cv2.FONT_HERSHEY_SIMPLEX, font_scale, (255, 255, 255), 1, cv2.LINE_AA)
 
-    # --- Top Right Pills (Hazards) ---
     x_right = w - 8
-    
+
+    verifying_count = int(frame_data.extra_metadata.get("verifying_count", 0) or 0)
+    if verifying_count > 0:
+        text = f"VERIFY {verifying_count}"
+        (tw, th), _ = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, font_scale, 1)
+        cv2.rectangle(frame, (x_right - tw - 10, y_top), (x_right, y_top + th + 10), (0, 200, 255), -1)
+        cv2.putText(frame, text, (x_right - tw - 5, y_top + th + 5), cv2.FONT_HERSHEY_SIMPLEX, font_scale, (255, 255, 255), 1, cv2.LINE_AA)
+        x_right -= (tw + 15)
+
+    reliability_mode = str(frame_data.extra_metadata.get("reliability_mode", "NORMAL"))
+    if reliability_mode == "LIMITED":
+        text = "LIMITED"
+        (tw, th), _ = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, font_scale, 1)
+        cv2.rectangle(frame, (x_right - tw - 10, y_top), (x_right, y_top + th + 10), (80, 80, 255), -1)
+        cv2.putText(frame, text, (x_right - tw - 5, y_top + th + 5), cv2.FONT_HERSHEY_SIMPLEX, font_scale, (255, 255, 255), 1, cv2.LINE_AA)
+        x_right -= (tw + 15)
+
     if frame_data.is_image_blurry:
         text = "BLUR/FOG"
         (tw, th), _ = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, font_scale, 1)
@@ -365,7 +397,7 @@ def main():
 
     print("\n" + "=" * 50)
     print("MTU Pipeline Engine Active.")
-    print("Press 'w' to cycle zone layout, 'q' to quit.")
+    print("Press 'q' to quit.")
     print("=" * 50 + "\n")
 
     cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
@@ -403,8 +435,6 @@ def main():
             if key == ord("q"):
                 print("\nShutdown command received. Closing stream.")
                 break
-            if key == ord("w"):
-                engine.cycle_zone_layout()
 
     except KeyboardInterrupt:
         print("\nShutdown via keyboard interrupt.")
