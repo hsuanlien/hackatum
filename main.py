@@ -20,6 +20,34 @@ def draw_corner_brackets(frame, xmin, ymin, xmax, ymax, color, thickness=2, leng
     cv2.line(frame, (xmax, ymax), (xmax - length, ymax), color, thickness)
     cv2.line(frame, (xmax, ymax), (xmax, ymax - length), color, thickness)
 
+
+def classify_camera_zone(bbox, frame_width, frame_height):
+    xmin, ymin, xmax, ymax = bbox
+    center_x = (xmin + xmax) / 2
+    box_height = max(1, ymax - ymin)
+
+    if center_x < frame_width / 3:
+        horizontal_zone = "LEFT"
+    elif center_x < (frame_width * 2) / 3:
+        horizontal_zone = "CENTER"
+    else:
+        horizontal_zone = "RIGHT"
+
+    near_threshold = frame_height * 0.45
+    mid_threshold = frame_height * 0.28
+    if box_height >= near_threshold:
+        distance_zone = "NEAR"
+    elif box_height >= mid_threshold:
+        distance_zone = "MID"
+    else:
+        distance_zone = "FAR"
+
+    return f"{distance_zone}-{horizontal_zone}"
+
+
+def is_danger_area(zone_text):
+    return not zone_text.endswith("-CENTER")
+
 def render_annotations(frame_data):
     """
     Renders sleek, minimalist annotations, safety statuses, and HUD info onto the processed_frame.
@@ -31,6 +59,7 @@ def render_annotations(frame_data):
     overlay = frame.copy()
     
     post_blend_text = []
+    danger_area_count = 0
 
     ppe_debug = frame_data.extra_metadata.get("ppe_debug", {})
     helmet_boxes = ppe_debug.get("helmet_boxes", []) if isinstance(ppe_debug, dict) else []
@@ -75,6 +104,10 @@ def render_annotations(frame_data):
     # 1. Draw Bounding Boxes and Labels for Tracked Persons
     for person in frame_data.persons:
         xmin, ymin, xmax, ymax = person.bbox
+        zone_text = classify_camera_zone(person.bbox, w, h)
+        in_danger_area = is_danger_area(zone_text)
+        if in_danger_area:
+            danger_area_count += 1
         has_yellow_vest = person.metadata.get("has_yellow_vest")
         if has_yellow_vest is True:
             vest_text = "VEST: YES"
@@ -82,21 +115,29 @@ def render_annotations(frame_data):
             vest_text = "VEST: NO"
         else:
             vest_text = "VEST: ?"
+
+        area_text = "DANGER AREA: PPE REQUIRED" if in_danger_area else "CENTER AREA"
         
         is_safe = True
-        status_text = f"ID {person.person_id} | SAFE | {vest_text}"
+        status_text = f"ID {person.person_id} | SAFE | {vest_text} | {zone_text} | {area_text}"
         color = (0, 200, 0)  # Green for safe
+
+        if in_danger_area:
+            color = (0, 0, 255)
         
         if person.is_fallen:
             color = (0, 0, 255)  # Red
-            status_text = f"ID {person.person_id} | FALL DETECTED | {vest_text}"
+            status_text = f"ID {person.person_id} | FALL DETECTED | {vest_text} | {zone_text} | {area_text}"
             is_safe = False
         elif len(person.compliance_violations) > 0:
             color = (0, 140, 255)  # Orange
             viols = []
             if "Helmet" in person.compliance_violations: viols.append("NO HELMET")
             if "Glasses" in person.compliance_violations: viols.append("NO GLASSES")
-            status_text = f"ID {person.person_id} | UNSAFE: {', '.join(viols)} | {vest_text}"
+            status_text = f"ID {person.person_id} | UNSAFE: {', '.join(viols)} | {vest_text} | {zone_text} | {area_text}"
+            is_safe = False
+        elif in_danger_area:
+            status_text = f"ID {person.person_id} | WARNING: WEAR SAFETY GEAR | {vest_text} | {zone_text} | {area_text}"
             is_safe = False
 
         if is_safe:
@@ -121,6 +162,12 @@ def render_annotations(frame_data):
     
     # HUD Overlay (For top metrics and hazards)
     hud_overlay = frame.copy()
+
+    if danger_area_count > 0:
+        warning_text = f"DANGER AREA ALERT: {danger_area_count} WORKER(S) REQUIRE SAFETY GEAR"
+        (dw, dh), _ = cv2.getTextSize(warning_text, cv2.FONT_HERSHEY_SIMPLEX, 0.7, 2)
+        cv2.rectangle(hud_overlay, (10, 54), (min(w - 10, 10 + dw + 24), 54 + dh + 20), (0, 0, 255), -1)
+        post_blend_text.append((warning_text, (22, 54 + dh + 6), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2))
     
     # 2. Draw Top Left Counters
     stats_str = f"LIVE: {frame_data.current_people_count}   TOTAL: {frame_data.total_unique_people}"
