@@ -18,8 +18,8 @@ if FAST_MODE:
     PPE_CROP_MAX_PERSONS = 0
     PERSON_DETECT_INTERVAL = 2
     FACE_DETECT_INTERVAL = 4
-    POSE_INFERENCE_INTERVAL = 4
-    SMOKE_INFERENCE_INTERVAL = 6
+    POSE_INFERENCE_INTERVAL = 1
+    SMOKE_INFERENCE_INTERVAL = 1
     COMPLIANCE_HEURISTIC_INTERVAL = 1
     ASYNC_FRAME_GRAB = True
 elif SMOOTH_MODE:
@@ -92,7 +92,7 @@ SMOKE_CONFIRMATION_FRAMES = 1       # Threshold for consecutive smoke alerts to 
 FIRE_CONFIRMATION_FRAMES = 1        # Threshold for consecutive fire alerts to be sure  
 
 FALL_ANGLE_THRESHOLD = 50           # Angle (degrees) of spine relative to vertical (e.g. > 60 = horizontal/lying)
-FALL_CONFIRMATION_FRAMES = 2        # Number of consecutive frames required to confirm a fall
+FALL_CONFIRMATION_FRAMES = 1        # Number of consecutive frames required to confirm a fall
 KEYPOINT_CONFIDENCE_THRESHOLD = 0.35 # Minimum confidence for pose keypoints to be used
 FALL_ASPECT_RATIO_THRESHOLD = 1.75   # Width/height ratio threshold for aspect ratio fallback detection
 
@@ -132,6 +132,13 @@ def resolve_zones_path(profile: Optional[str] = None, explicit_path: Optional[st
 # terminal. Set to 0 to disable debouncing (show every alert).
 ALERT_DEBOUNCE_SECONDS = 5
 
+# --- False Alarm Filter ---
+# Alerts must persist for N frames before they become confirmed incidents.
+ALERT_VERIFY_CRITICAL_FRAMES = 1
+ALERT_VERIFY_WARNING_FRAMES = 2
+# Reset verifier state if an alert signature disappears longer than this.
+ALERT_VERIFY_STALE_SECONDS = 1.5
+
 # --- Tracker Maintenance ---
 # How often (in detection frames) to prune stale ByteTrack IDs from internal
 # dicts. ByteTrack IDs are monotonically increasing so old ones accumulate.
@@ -156,6 +163,7 @@ DISPATCH_COOLDOWN_SECONDS = 15
 DISPATCH_MQTT_BROKER = "broker.hivemq.com"
 DISPATCH_MQTT_PORT = 8884          # 8884 = WebSocket + TLS (wss://)
 DISPATCH_MQTT_TOPIC = "hackatum/robot/dispatch"
+DISPATCH_MQTT_STATUS_TOPIC = "hackatum/robot/status"
 DISPATCH_MQTT_USE_WS = True        # Use WebSocket transport (required for browser dashboard)
 DISPATCH_MQTT_USE_TLS = True       # TLS on port 8884
 
