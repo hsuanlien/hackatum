@@ -241,8 +241,12 @@ if run_pipeline:
         trend_df = pd.DataFrame(trend_rows, columns=["Time", "DangerScore"]).set_index("Time")
         return hist_df, trend_df
     
+    frame_count = 0
     try:
         for frame_data in stream:
+            frame_count += 1
+            if not frame_data or frame_data.processed_frame is None:
+                continue
             # Check for user actions halting stream
             if not run_pipeline:
                 break
@@ -333,20 +337,21 @@ if run_pipeline:
                 delta_color="inverse" if frame_danger_score > 45 else "off",
             )
 
-            hist_df, trend_df = render_danger_histogram(
-                danger_history,
-                float(frame_data.timestamp),
-                danger_window_minutes,
-            )
-            if hist_df is not None:
-                danger_histogram_placeholder.bar_chart(hist_df)
-            else:
-                danger_histogram_placeholder.info("Collecting danger data...")
+            if frame_count % 15 == 0:
+                hist_df, trend_df = render_danger_histogram(
+                    danger_history,
+                    float(frame_data.timestamp),
+                    danger_window_minutes,
+                )
+                if hist_df is not None:
+                    danger_histogram_placeholder.bar_chart(hist_df)
+                else:
+                    danger_histogram_placeholder.info("Collecting danger data...")
 
-            if trend_df is not None and not trend_df.empty:
-                danger_trend_placeholder.line_chart(trend_df)
-            else:
-                danger_trend_placeholder.info("Collecting danger trend...")
+                if trend_df is not None and not trend_df.empty:
+                    danger_trend_placeholder.line_chart(trend_df)
+                else:
+                    danger_trend_placeholder.info("Collecting danger trend...")
 
             tattoo_enabled = bool(frame_data.extra_metadata.get("privacy_tattoo_blur_enabled", False))
             tattoo_ready = bool(frame_data.extra_metadata.get("privacy_tattoo_detector_ready", False))
@@ -392,27 +397,28 @@ if run_pipeline:
             alerts_html += "</div>"
             alerts_placeholder.markdown(alerts_html, unsafe_allow_html=True)
             
-            # Render manifest table
-            manifest_data = []
-            for p in frame_data.persons:
-                status_symbol = "🔴 Lying Down" if p.is_fallen else "🟢 Standing"
-                helmet_symbol = "✅ Wearing" if p.has_helmet else "❌ Missing"
-                glasses_symbol = "✅ Wearing" if p.has_glasses else "❌ Missing"
-                
-                manifest_data.append({
-                    "Worker ID": worker_label(p.person_id),
-                    "Posture Status": status_symbol,
-                    "Hard Hat": helmet_symbol,
-                    "Safety Eyewear": glasses_symbol,
-                    "Tattoo Privacy": "🟢 Active" if tattoo_enabled and tattoo_ready else ("🟠 Enabled (No Model)" if tattoo_enabled else "⚪ Off"),
-                })
-                
-            if manifest_data:
-                df = pd.DataFrame(manifest_data)
-                # Display table without index
-                table_placeholder.dataframe(df, width="stretch", hide_index=True)
-            else:
-                table_placeholder.info("No personnel currently registered in monitored area.")
+            if frame_count % 15 == 0:
+                # Render manifest table
+                manifest_data = []
+                for p in frame_data.persons:
+                    status_symbol = "🔴 Lying Down" if p.is_fallen else "🟢 Standing"
+                    helmet_symbol = "✅ Wearing" if p.has_helmet else "❌ Missing"
+                    glasses_symbol = "✅ Wearing" if p.has_glasses else "❌ Missing"
+                    
+                    manifest_data.append({
+                        "Worker ID": worker_label(p.person_id),
+                        "Posture Status": status_symbol,
+                        "Hard Hat": helmet_symbol,
+                        "Safety Eyewear": glasses_symbol,
+                        "Tattoo Privacy": "🟢 Active" if tattoo_enabled and tattoo_ready else ("🟠 Enabled (No Model)" if tattoo_enabled else "⚪ Off"),
+                    })
+                    
+                if manifest_data:
+                    df = pd.DataFrame(manifest_data)
+                    # Display table without index
+                    table_placeholder.dataframe(df, width="stretch", hide_index=True)
+                else:
+                    table_placeholder.info("No personnel currently registered in monitored area.")
                 
             # Slow down simulation frame rate to look natural (~15 FPS max)
             if use_mock:

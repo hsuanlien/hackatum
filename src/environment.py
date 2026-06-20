@@ -107,7 +107,8 @@ class EnvironmentBehaviorMonitor:
                     self._alert_last_sent["fire"] = now
             return
 
-        run_smoke = (self._frame_counter - 1) % config.SMOKE_INFERENCE_INTERVAL == 0
+        # Offset inference by 2 to prevent stutter (frame pacing)
+        run_smoke = (self._frame_counter - 1) % config.SMOKE_INFERENCE_INTERVAL == 2
 
         if (
             run_smoke
@@ -198,7 +199,8 @@ class EnvironmentBehaviorMonitor:
             w = xmax - xmin
             h = ymax - ymin
             # Skip only tiny crops that are too small for stable pose inference.
-            if w < 24 or h < 48:
+            # Allow wide but short crops (fallen people).
+            if min(w, h) < 24 or max(w, h) < 48:
                 continue
 
             pxmin = max(0, xmin)
@@ -269,7 +271,8 @@ class EnvironmentBehaviorMonitor:
         return is_fallen
 
     def _run_pose_detection(self, frame_data: FrameData) -> None:
-        run_pose = (self._frame_counter - 1) % config.POSE_INFERENCE_INTERVAL == 0
+        # Offset inference by 1 to prevent stutter (frame pacing)
+        run_pose = (self._frame_counter - 1) % config.POSE_INFERENCE_INTERVAL == 1
 
         if self.use_mock:
             for person in frame_data.persons:
@@ -316,7 +319,10 @@ class EnvironmentBehaviorMonitor:
             cached = self._last_person_pose.get(person.person_id)
             if cached is not None:
                 is_fallen = cached.get("is_fallen_raw", False)
-            elif self.pose_model is None:
+            
+            # Aspect ratio fallback: if pose model wasn't run, or failed to detect a fall,
+            # we check the bounding box dimensions. Fallen people are wider than they are tall.
+            if not is_fallen:
                 aspect_ratio = w / max(1, h)
                 if aspect_ratio > config.FALL_ASPECT_RATIO_THRESHOLD:
                     is_fallen = True

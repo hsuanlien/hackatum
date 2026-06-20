@@ -156,7 +156,8 @@ class ZoneMonitor:
         triggered_new_mode = False
         distance_msg = getattr(self, "_last_distance_msg", "")
 
-        if getattr(frame_data, "frame_index", 0) % 10 == 0:
+        # Offset inference by 4 to prevent stutter (frame pacing)
+        if getattr(frame_data, "frame_index", 0) % 10 == 4:
             gray = cv2.cvtColor(frame_data.raw_frame, cv2.COLOR_BGR2GRAY)
             corners, ids, _ = aruco.detectMarkers(gray, self.aruco_dict, parameters=self.aruco_params)
             distance_msg = ""

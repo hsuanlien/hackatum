@@ -253,7 +253,8 @@ class PrivacyAnonymizer:
                 )
             # --- Local Tattoo Segmentation & Privacy Redaction ---
             if config.BLUR_TATOOS:
-                run_tattoo = getattr(frame_data, "frame_index", 0) % 5 == 0
+                # Offset inference by 3 to prevent stutter (frame pacing)
+                run_tattoo = getattr(frame_data, "frame_index", 0) % 5 == 3
 
                 for limb_roi in build_tattoo_rois(person, detection_frame.shape):
                     limb_xmin, limb_ymin, limb_xmax, limb_ymax = limb_roi["bbox"]
