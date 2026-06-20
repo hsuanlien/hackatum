@@ -31,20 +31,33 @@ class EnvironmentBehaviorMonitor:
             try:
                 print("[Environment] Initializing YOLO Pose Model...")
                 self.pose_model = YOLO(config.POSE_MODEL_PATH)
-
-                root_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-                smoke_fire_path = os.path.join(root_dir, "models/fire_smoke.pt")
-
-                if os.path.exists(smoke_fire_path):
-                    print(f"[Environment] Loading Fire/Smoke Model from: {smoke_fire_path}")
-                    self.smoke_fire_model = YOLO(smoke_fire_path)
-                else:
-                    print(f"[Environment] Fire/Smoke model not found at: {smoke_fire_path}")
-                    self.smoke_fire_model = None
-
             except Exception as exc:
                 print(f"[Environment] Could not initialize YOLO Pose model: {exc}")
                 self.pose_model = None
+
+            root_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            smoke_fire_path = os.path.join(root_dir, "models/fire_smoke.pt")
+            smoke_fire_fallback = os.path.join("models", "fire_smoke.pt")
+
+            if os.path.exists(smoke_fire_path):
+                print(f"[Environment] Loading Fire/Smoke Model from: {smoke_fire_path}")
+                try:
+                    self.smoke_fire_model = YOLO(smoke_fire_path)
+                except Exception as exc:
+                    print(
+                        "[Environment] Fire/Smoke absolute path failed; "
+                        f"retrying fallback path '{smoke_fire_fallback}': {exc}"
+                    )
+                    try:
+                        self.smoke_fire_model = YOLO(smoke_fire_fallback)
+                    except Exception as fallback_exc:
+                        print(
+                            "[Environment] Could not initialize Fire/Smoke model "
+                            f"from fallback path: {fallback_exc}"
+                        )
+                        self.smoke_fire_model = None
+            else:
+                print(f"[Environment] Fire/Smoke model not found at: {smoke_fire_path}")
                 self.smoke_fire_model = None
         else:
             print("[Environment] Running in MOCK mode.")
@@ -110,12 +123,12 @@ class EnvironmentBehaviorMonitor:
 
             for box in sf_results.boxes:
                 cls_id = int(box.cls[0])
-                class_name = sf_results.names[cls_id]
+                class_name = str(sf_results.names[cls_id]).lower().strip()
                 confidence = float(box.conf[0])
 
-                if class_name == "smoke" and confidence >= config.SMOKE_CONF_THRESHOLD:
+                if "smoke" in class_name and confidence >= config.SMOKE_CONF_THRESHOLD:
                     current_smoke = True
-                elif class_name == "fire" and confidence >= config.FIRE_CONF_THRESHOLD:
+                elif "fire" in class_name and confidence >= config.FIRE_CONF_THRESHOLD:
                     current_fire = True
 
             if current_smoke:

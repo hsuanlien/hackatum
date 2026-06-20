@@ -206,12 +206,22 @@ class PrivacyAnonymizer:
                             raise RuntimeError("Tattoo detector is not initialized")
 
                         tattoo_mask = self.tattoo_detector.detect_mask(limb_crop)
-                        if self._blur_masked_region(
+                        blurred = self._blur_masked_region(
                             frame,
                             limb_roi["bbox"],
                             tattoo_mask,
-                        ):
+                        )
+                        if blurred:
                             tattoo_blur_regions += 1
+                        elif config.TATTOO_FAIL_CLOSED:
+                            if self._blur_region(
+                                frame,
+                                limb_xmin,
+                                limb_ymin,
+                                limb_xmax,
+                                limb_ymax,
+                            ):
+                                tattoo_blur_regions += 1
                     except Exception as error:
                         print(
                             f"[Privacy] Tattoo inference failed for worker "
