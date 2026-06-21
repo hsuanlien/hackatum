@@ -1340,45 +1340,59 @@
     }
 
     function triggerHeroAlert(team, zone, person, alertType, severity) {
-   // Don't let a PPE warning overwrite an active fall or restricted alert
-      if (heroCard.classList.contains('alert') && severity === 'ppe') return;
+    // Don't let a PPE warning overwrite an active fall or restricted alert
+    if (heroCard.classList.contains('alert') && severity === 'ppe') return;
 
-      clearTimeout(alertTimer);
-      heroCard.classList.remove('standby', 'alert', 'alert-ppe');
+    clearTimeout(alertTimer);
+    
+    // FIX: Clear the old emoji interval so the new alarm type can take over
+    if (emojiInterval) {
+      clearInterval(emojiInterval);
+      emojiInterval = null;
+    }
+    
+    // FIX: Remove old floating particles from the screen instantly
+    document.querySelectorAll('.floating-particle').forEach(el => el.remove());
 
-      if (severity === 'fall') {
-        heroCard.classList.add('alert');
-        heroIcon.textContent = '🚨';
-        heroStatusLabel.textContent = 'FALL DETECTED!';
-        heroSubtext.textContent = 'Robot dispatching to Zone ' + zone;
-        if (!emojiInterval) emojiInterval = setInterval(() => spawnParticle('fall'), 250);
-      } else if (severity === 'fire') {
-        heroCard.classList.add('alert');
-        heroIcon.textContent = alertType === 'SMOKE_DETECTED' ? '💨' : '🔥';
-        heroStatusLabel.textContent = alertType === 'SMOKE_DETECTED' ? 'SMOKE DETECTED!' : 'FIRE DETECTED!';
-        heroSubtext.textContent = 'EVACUATE IMMEDIATELY — Zone ' + zone;
+    heroCard.classList.remove('standby', 'alert', 'alert-ppe');
 
-        const particleType = alertType === 'SMOKE_DETECTED' ? 'smoke' : 'fire';
-        if (!emojiInterval) emojiInterval = setInterval(() => spawnParticle(particleType), 250);
-      } else if (severity === 'restricted') {
-        heroCard.classList.add('alert');
-        heroIcon.textContent = '⛔';
-        heroStatusLabel.textContent = 'RESTRICTED ENTRY';
-        heroSubtext.textContent = 'Unauthorized entry — Zone ' + zone;
+    if (severity === 'fall') {
+      heroCard.classList.add('alert');
+      heroIcon.textContent = '🚨';
+      heroStatusLabel.textContent = 'FALL DETECTED!';
+      heroSubtext.textContent = 'Robot dispatching to Zone ' + zone;
+      
+      if (!emojiInterval) emojiInterval = setInterval(() => spawnParticle('fall'), 250);
+      
+    } else if (severity === 'fire') {
+      heroCard.classList.add('alert');
+      heroIcon.textContent = alertType === 'SMOKE_DETECTED' ? '💨' : '🔥';
+      heroStatusLabel.textContent = alertType === 'SMOKE_DETECTED' ? 'SMOKE DETECTED!' : 'FIRE DETECTED!';
+      heroSubtext.textContent = 'EVACUATE IMMEDIATELY — Zone ' + zone;
+
+      const particleType = alertType === 'SMOKE_DETECTED' ? 'smoke' : 'fire';
+      if (!emojiInterval) emojiInterval = setInterval(() => spawnParticle(particleType), 250);
+      
+    } else if (severity === 'restricted') {
+      heroCard.classList.add('alert');
+      heroIcon.textContent = '⛔';
+      heroStatusLabel.textContent = 'RESTRICTED ENTRY';
+      heroSubtext.textContent = 'Unauthorized entry — Zone ' + zone;
+      
+    } else {
+      heroCard.classList.add('alert-ppe');
+      if (alertType === 'NO_HELMET') {
+        heroIcon.textContent = '👷';
+        heroStatusLabel.textContent = 'NO HELMET';
+      } else if (alertType === 'NO_VEST') {
+        heroIcon.textContent = '🦺';
+        heroStatusLabel.textContent = 'NO VEST';
       } else {
-        heroCard.classList.add('alert-ppe');
-        if (alertType === 'NO_HELMET') {
-          heroIcon.textContent = '👷';
-          heroStatusLabel.textContent = 'NO HELMET';
-        } else if (alertType === 'NO_VEST') {
-          heroIcon.textContent = '🦺';
-          heroStatusLabel.textContent = 'NO VEST';
-        } else {
-          heroIcon.textContent = '👓';
-          heroStatusLabel.textContent = 'NO GLASSES';
-        }
-        heroSubtext.textContent = 'PPE violation detected — Zone ' + zone;
+        heroIcon.textContent = '👓';
+        heroStatusLabel.textContent = 'NO GLASSES';
       }
+      heroSubtext.textContent = 'PPE violation detected — Zone ' + zone;
+    }
 
     detailTeam.textContent   = team;
     detailZone.textContent   = zone;
@@ -1392,7 +1406,7 @@
 
     alertTimer = setTimeout(resetHeroToStandby, ALERT_DURATION_MS);
   }
- 
+
   function spawnParticle(type) {
     const particle = document.createElement('div');
     particle.className = 'floating-particle';
