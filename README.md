@@ -42,7 +42,7 @@ Our path looked somewhat like this:
 <img width="1918" height="1078" alt="image" src="https://github.com/user-attachments/assets/80c0f613-3097-4562-a96d-760b526f255c" />
 <img width="976" height="572" alt="image" src="https://github.com/user-attachments/assets/124583ca-6d16-4691-bd11-51b8096546c1" />
 
-
+[Watch the Live Demo Video on YouTube](https://youtu.be/FpIA_rN2pGQ)
 
 4. **Testing it live** exposed critical edge cases. Smoke detection fired too often, so we slowed inference intervals and added multi-frame alert verification (`alert_filter.py`) plus a **LIMITED** HUD mode when the image is blurry or noisy (critical alerts still go out, but PPE spam to the robot is throttled). PPE heuristics falsely called bare hair “helmet”, so we now trust the YOLO model instead.
 
