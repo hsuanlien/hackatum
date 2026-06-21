@@ -80,8 +80,9 @@ PPE_CONF_THRESHOLD = 0.2
 
 # --- PPE Precision Tuning (pretrained-friendly) ---
 # Higher thresholds reduce false positive PPE detections.
-PPE_HELMET_STRICT_CONF = 0.50
-PPE_GLASSES_STRICT_CONF = 0.48
+PPE_HELMET_AREA_MAX = 0.45
+
+PPE_GLASSES_STRICT_CONF = 0.25
 PPE_GLASSES_HELMET_ASSIST = True
 PPE_GLASSES_HELMET_CONF_BONUS = 0.08
 PPE_HELMET_REL_Y_MAX = 0.55

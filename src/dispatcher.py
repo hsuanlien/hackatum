@@ -253,8 +253,9 @@ class RobotDispatcher:
             if rc != 0:
                 print(f"[Dispatcher] [WARNING] MQTT disconnected unexpectedly (rc={rc}). Will auto-reconnect.")
 
+        import uuid
         client = mqtt.Client(
-            client_id=f"hackatum-{config.TEAM_ID}-dispatcher",
+            client_id=f"hackatum-{config.TEAM_ID}-dispatcher-{uuid.uuid4().hex[:8]}",
             transport="websockets" if config.DISPATCH_MQTT_USE_WS else "tcp",
         )
         client.on_connect = on_connect

@@ -56,8 +56,9 @@ def _is_glasses_label(label: str) -> bool:
             "transparent safety glasses",
             "clear goggles",
             "transparent goggles",
-            "glasses",
             "sunglasses",
+            "black sunglasses",
+            "dark glasses",
             "sun glasses",
             "eyeglasses",
             "eye glasses",
@@ -115,6 +116,8 @@ class SharedPPEDetector:
                         "goggles",
                         "eyeglasses",
                         "sunglasses",
+                        "black sunglasses",
+                        "dark glasses",
                         "spectacles",
                     ])
             except Exception as exc:
