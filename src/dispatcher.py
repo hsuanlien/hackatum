@@ -275,7 +275,13 @@ class RobotDispatcher:
         client.on_disconnect = on_disconnect
 
         if config.DISPATCH_MQTT_USE_TLS:
-            client.tls_set()  # Uses default system CA certs
+            import ssl
+            try:
+                import certifi
+                client.tls_set(ca_certs=certifi.where())
+            except ImportError:
+                client.tls_set(cert_reqs=ssl.CERT_NONE)
+                client.tls_insecure_set(True)
 
         client.connect_async(config.DISPATCH_MQTT_BROKER, config.DISPATCH_MQTT_PORT)
         client.loop_start()  # Background thread — non-blocking

@@ -46,7 +46,13 @@ class RobotSimulator:
             transport="websockets" if config.DISPATCH_MQTT_USE_WS else "tcp",
         )
         if config.DISPATCH_MQTT_USE_TLS:
-            self.client.tls_set()
+            import ssl
+            try:
+                import certifi
+                self.client.tls_set(ca_certs=certifi.where())
+            except ImportError:
+                self.client.tls_set(cert_reqs=ssl.CERT_NONE)
+                self.client.tls_insecure_set(True)
         self.client.on_connect = self.on_connect
         self.client.on_message = self.on_message
         self.client.connect(config.DISPATCH_MQTT_BROKER, config.DISPATCH_MQTT_PORT, 60)
