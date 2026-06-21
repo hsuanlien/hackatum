@@ -36,6 +36,8 @@ def _is_helmet_label(label: str) -> bool:
             "hard hat",
             "safety helmet",
             "protective helmet",
+            "white helmet",
+            "white hard hat",
         }
         or "helmet" in key
         or "hard hat" in key
@@ -59,6 +61,8 @@ def _is_glasses_label(label: str) -> bool:
             "sunglasses",
             "black sunglasses",
             "dark glasses",
+            "multicolor sunglasses",
+            "reflective sunglasses",
             "sun glasses",
             "eyeglasses",
             "eye glasses",
@@ -109,7 +113,8 @@ class SharedPPEDetector:
                         "helmet",
                         "safety helmet",
                         "hardhat",
-                        "hard hat",
+                        "white helmet",
+                        "white hard hat",
                         "safety goggles",
                         "safety glasses",
                         "protective eyewear",
@@ -118,6 +123,8 @@ class SharedPPEDetector:
                         "sunglasses",
                         "black sunglasses",
                         "dark glasses",
+                        "multicolor sunglasses",
+                        "reflective sunglasses",
                         "spectacles",
                     ])
             except Exception as exc:

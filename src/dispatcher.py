@@ -191,16 +191,24 @@ class RobotDispatcher:
             try:
                 import pygame
                 import os
+                import platform
                 # Dynamically get the absolute path to the project root
                 base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
                 mp3_path = os.path.join(base_dir, "images", "spongebobalarm.mp3")
                 
                 print(f"[Dispatcher DEBUG] Loading MP3 from {mp3_path}")
-                pygame.mixer.music.load(mp3_path)
-                print(f"[Dispatcher DEBUG] Playing MP3")
-                pygame.mixer.music.play()
-                while pygame.mixer.music.get_busy():
-                    pygame.time.Clock().tick(10)
+                
+                if platform.system() == "Darwin":
+                    import subprocess
+                    print(f"[Dispatcher DEBUG] Playing MP3 using macOS native afplay")
+                    subprocess.run(["afplay", mp3_path])
+                else:
+                    import pygame
+                    pygame.mixer.music.load(mp3_path)
+                    print(f"[Dispatcher DEBUG] Playing MP3 using pygame")
+                    pygame.mixer.music.play()
+                    while pygame.mixer.music.get_busy():
+                        pygame.time.Clock().tick(10)
                 print(f"[Dispatcher DEBUG] MP3 finished playing")
             except Exception as e:
                 print(f"[Dispatcher] MP3 playback failed: {e}")
