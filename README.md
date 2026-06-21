@@ -34,7 +34,9 @@ Additionally, we faced the hackathon constraint. We were a team of five with onl
 Our path looked somewhat like this:
 
 1. We started by building a **core pipeline**. Tracking people (YOLO + ByteTrack), checking PPE, watching for falls and fire, blurring faces on output, dispatching alerts over MQTT to a dummy rover and creating a browser dashboard. That had to run on a laptop CPU, so we built `SMOOTH_MODE` and `FAST_MODE` (smaller models, skip heavy frames, async camera grab).
+
 2. The **spatial challenge**. MTU cares about *location* and we do too. Our first version used static vertical bands in `zones/*.json` (with the left side being safe, centre being the work zone and the right being restricted). It was simple enough, but it was glued to the camera, so if you remount the cam, the entire “factory” moves.
+
 3. The **pragmatic leap**. We wanted to *show* different zone layouts live (all yellow, red/green splits, etc.) without a floor map. We introduced OpenCV ArUco marker detection via `zone_map.py`. We flash a fiducial marker and its ID picks which wall the rover or camera is facing; estimated distance picks “close” vs “far” layout. The layout locks when the marker leaves frame to ensure a stable presentation. While this approach is not production-ready, it provided a practical and effective way to communicate zone behavior on the exhibition floor.
 
 <img width="1918" height="1078" alt="image" src="https://github.com/user-attachments/assets/80c0f613-3097-4562-a96d-760b526f255c" />
