@@ -99,7 +99,7 @@ PPE_CONFIRM_FRAMES = 1
 # ==============================================================================
 ENABLE_TTS_SIREN = True
 # ENABLE_TWILIO_SMS = os.getenv("ENABLE_TWILIO_SMS", "False").lower() == "true"
-ENABLE_TWILIO_SMS = False  # Disabled by default to prevent accidental SMS spamming during development
+ENABLE_TWILIO_SMS = True  # Disabled by default to prevent accidental SMS spamming during development
 TWILIO_ACCOUNT_SID = os.getenv("TWILIO_ACCOUNT_SID", "")
 TWILIO_AUTH_TOKEN = os.getenv("TWILIO_AUTH_TOKEN", "")
 TWILIO_FROM_NUMBER = os.getenv("TWILIO_FROM_NUMBER", "")
