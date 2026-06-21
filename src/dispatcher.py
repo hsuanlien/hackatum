@@ -179,7 +179,9 @@ class RobotDispatcher:
     # ------------------------------------------------------------------
 
     def _trigger_wow_factor(self, message: str, alert_type: str) -> None:
+        print(f"[Dispatcher DEBUG] wow_factor called with alert_type={alert_type}")
         if getattr(config, "ENABLE_TTS_SIREN", False) and alert_type == "FALL_DETECTED":
+            print(f"[Dispatcher DEBUG] Sirens condition met. Calling _play_tts")
             self._play_tts(message)
         if getattr(config, "ENABLE_TWILIO_SMS", False):
             self._send_twilio_sms(message)
@@ -193,10 +195,13 @@ class RobotDispatcher:
                 base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
                 mp3_path = os.path.join(base_dir, "images", "spongebobalarm.mp3")
                 
+                print(f"[Dispatcher DEBUG] Loading MP3 from {mp3_path}")
                 pygame.mixer.music.load(mp3_path)
+                print(f"[Dispatcher DEBUG] Playing MP3")
                 pygame.mixer.music.play()
                 while pygame.mixer.music.get_busy():
                     pygame.time.Clock().tick(10)
+                print(f"[Dispatcher DEBUG] MP3 finished playing")
             except Exception as e:
                 print(f"[Dispatcher] MP3 playback failed: {e}")
         t = threading.Thread(target=_play_mp3)
