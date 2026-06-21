@@ -26,13 +26,9 @@ Additionally, we faced the hackathon constraint. We were a team of five with onl
 Our path looked somewhat like this:
 
 1. We started by building a **core pipeline**. Tracking people (YOLO + ByteTrack), checking PPE, watching for falls and fire, bluring faces on output, dispatching alerts over MQTT to a dummy rover and creating a browser dashboard. That had to run on a laptop CPU, so we built `SMOOTH_MODE` and `FAST_MODE` (smaller models, skip heavy frames, async camera grab).
-
 2. The **spatial challenge**. MTU cares about *location* and we do too. Our first version used static vertical bands in `zones/*.json` (with the left side being safe, centre being the work zone and the right being restricted). It was simple enough, but it was glued to the camera, so if you remount the cam, the entire “factory” moves.
-
 3. The **pragmatic leap**. We wanted to *show* different zone layouts live (all yellow, red/green splits, etc.) without a floor map. We introduced OpenCV ArUco marker detection via `zone_map.py`. We flash a fiducial marker and its ID picks which wall the rover or camera is facing; estimated distance picks “close” vs “far” layout. The layout locks when the marker leaves frame so the demo does not flicker much. While this approach is not production-ready, it provided a practical and effective way to communicate zone behavior on the exhibition floor.
-
 4. **Testing it live** exposed critical edge cases. Smoke detection fired too often, so we slowed inference intervals and added multi-frame alert verification (`alert_filter.py`) plus a **LIMITED** HUD mode when the image is blurry or noisy (critical alerts still go out, but PPE spam to the robot is throttled). PPE heuristics falsely called bare hair “helmet”, so we now trust the YOLO model instead.
-
 5. **Robot handoff without a server**. To demonstrate a complete industrial automation loop without managing a heavy backend server, we use public MQTT (HiveMQ). We send real-time alerts to a light `robot_dashboard.html` that can be opened in any browser and a `robot_sim.py` routine, that instantly dispatches commands to a future rover.
 
 ---
@@ -41,54 +37,62 @@ Our path looked somewhat like this:
 
 ### Innovation & creativity (40%)
 
-| What you care about | What we did |
-|------------------------|-------------|
-| **Originality** | We implemented zone-dependent safety on a single camera feed tied to a rover dispatch loop. |
-| **Unique approach** | We used ArUco markers to swap coloured zone layouts (green / yellow / red) without SLAM or a CAD floor plan. |
+
+| What you care about     | What we did                                                                                                                                                  |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **Originality**         | We implemented zone-dependent safety on a single camera feed tied to a rover dispatch loop.                                                                  |
+| **Unique approach**     | We used ArUco markers to swap coloured zone layouts (green / yellow / red) without SLAM or a CAD floor plan.                                                 |
 | **Unconventional tech** | We used public MQTT mapped to a static HTML dashboard, paired with a custom color-histogram Re-ID algorithm to maintain accurate headcounts entirely on CPU. |
-| **WOW factor** | Live colour bands react to a phone marker; restricted entry pings the robot dashboard; press `g` for a little Easter egg |
+| **WOW factor**          | Live colour bands react to a phone marker; restricted entry pings the robot dashboard; press `g` for a little Easter egg                                     |
+
 
 **Zone colours on the feed**
 
-| Colour | Meaning |
-|--------|---------|
-| **Green** | Safe areas, no PPE required |
-| **Yellow** | Work floor: helmet + glasses; vest checked but not required |
-| **Red** | Restricted entry alert! |
 
-Markers **0–3** = four walls of a demo cross layout. Distance < 2 m vs ≥ 2 m switches between two band layouts per wall. Person zone = bbox **foot point** inside the bands.
+| Colour     | Meaning                                                     |
+| ---------- | ----------------------------------------------------------- |
+| **Green**  | Safe areas, no PPE required                                 |
+| **Yellow** | Work floor: helmet + glasses; vest checked but not required |
+| **Red**    | Restricted entry alert!                                     |
+
+
+Markers **0-3** = four walls of a demo cross layout. Distance < 2 m vs ≥ 2 m switches between two band layouts per wall. Person zone = bbox **foot point** inside the bands.
 
 ### Technical implementation (40%)
 
-| Stage | File | Description |
-|-------|------|-------------|
-| Orchestration | `src/engine.py` | Coordinates data flow and state management across all pipeline stages. |
-| People + Re-ID | `src/tracker.py` | Combines YOLO object detection, ByteTrack tracking, and custom color-histogram matching to prevent duplicate counts on CPU. |
-| PPE | `src/ppe_inference.py` | Runs specialized secondary models to identify safety gear. |
-| Heuristics | `src/compliance.py` | Evaluates detected gear against the active spatial rules of the person's location. |
-| Zones + ArUco | `src/zone_map.py` | Computes pose distance relative to markers to project and lock dynamic compliance boundaries. |
-| Falls / smoke / blur | `src/environment.py` | Runs a YOLOv8-pose skeleton model to compute spine-to-vertical angles for robust fall detection, and tracks Laplacian variance for image blur. |
-| Face blur / Garfield | `src/privacy.py` | Real-time output pixelation of faces to enforce GDPR/DSGVO compliance. |
-| Tattoo blur (prototype) | `src/tattoo.py` | Prototype designed to detect and blur identifiable body art. |
-| Alert verification | `src/alert_filter.py` | Implements temporal debouncing and multi-frame verification to eliminate false positives. |
-| MQTT dispatch | `src/dispatcher.py` | Manages lightweight, non-blocking MQTT message payloads to remote endpoints. |
+
+| Stage                   | File                   | Description                                                                                                                                    |
+| ----------------------- | ---------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| Orchestration           | `src/engine.py`        | Coordinates data flow and state management across all pipeline stages.                                                                         |
+| People + Re-ID          | `src/tracker.py`       | Combines YOLO object detection, ByteTrack tracking, and custom color-histogram matching to prevent duplicate counts on CPU.                    |
+| PPE                     | `src/ppe_inference.py` | Runs specialized secondary models to identify safety gear.                                                                                     |
+| Heuristics              | `src/compliance.py`    | Evaluates detected gear against the active spatial rules of the person's location.                                                             |
+| Zones + ArUco           | `src/zone_map.py`      | Computes pose distance relative to markers to project and lock dynamic compliance boundaries.                                                  |
+| Falls / smoke / blur    | `src/environment.py`   | Runs a YOLOv8-pose skeleton model to compute spine-to-vertical angles for robust fall detection, and tracks Laplacian variance for image blur. |
+| Face blur / Garfield    | `src/privacy.py`       | Real-time output pixelation of faces to enforce GDPR/DSGVO compliance.                                                                         |
+| Tattoo blur (prototype) | `src/tattoo.py`        | Prototype designed to detect and blur identifiable body art.                                                                                   |
+| Alert verification      | `src/alert_filter.py`  | Implements temporal debouncing and multi-frame verification to eliminate false positives.                                                      |
+| MQTT dispatch           | `src/dispatcher.py`    | Manages lightweight, non-blocking MQTT message payloads to remote endpoints.                                                                   |
+
 
 ---
 
 ## What is implemented
 
-| Component | Status |
-|-----------|--------|
-| Live OpenCV UI | Zone overlay, labels, hazards, replay clips |
-| Streamlit dashboard | Same pipeline + tunable thresholds |
-| Robot dashboard + sim | MQTT alerts and fake rover ETA |
-| People + Re-ID | YOLO + ByteTrack + histogram Re-ID |
-| PPE | YOLO helmet/goggles + HSV vest |
-| Zones | ArUco-switched layouts; manual `w` cycle |
-| Environment | Falls, smoke/fire, blur detection |
-| Alert hygiene | Debounce, frame verification, LIMITED mode |
-| Privacy | Output blur, tattoo prototype, Garfield toggle |
-| MQTT | Fall, restricted entry, PPE, fire/smoke |
+
+| Component             | Status                                         |
+| --------------------- | ---------------------------------------------- |
+| Live OpenCV UI        | Zone overlay, labels, hazards, replay clips    |
+| Streamlit dashboard   | Same pipeline + tunable thresholds             |
+| Robot dashboard + sim | MQTT alerts and fake rover ETA                 |
+| People + Re-ID        | YOLO + ByteTrack + histogram Re-ID             |
+| PPE                   | YOLO helmet/goggles + HSV vest                 |
+| Zones                 | ArUco-switched layouts; manual `w` cycle       |
+| Environment           | Falls, smoke/fire, blur detection              |
+| Alert hygiene         | Debounce, frame verification, LIMITED mode     |
+| Privacy               | Output blur, tattoo prototype, Garfield toggle |
+| MQTT                  | Fall, restricted entry, PPE, fire/smoke        |
+
 
 **Not implemented:** calibrated floor geometry, printed marker rig, automated test suite, and certified safety sign-off. Static `zones/*.json` profiles remain in the repo for reference; the live demo path is hardcoded ArUco layouts in `src/zone_map.py`.
 
@@ -121,27 +125,10 @@ Open the generated images located in `data/` on your phone screen at maximum bri
 python robot_sim.py
 # Terminal 2: vision pipeline (w = cycle layouts, g = Garfield/blur, q = quit)
 python main.py --source 0
-# Browser: open robot_dashboard.html (MQTT topics below)
 ```
-
-### Mock (no camera)
-If a hardware camera source is unavailable, you can run the pipeline using a simulated input stream:
-
-```bash
-python main.py --mock
-```
-
-PPE and falls work in mock mode; ArUco layout switching and Garfield need a real camera feed.
+To open the dashboard on your browser, simply double-click on `robot_dashboard.html`.
 
 MQTT topics: `hackatum/robot/dispatch`, `hackatum/robot/status`
-
-### Streamlit
-
-You may double click `dashboard.py` to open the dashboard, or open it using Streamlit:
-
-```bash
-streamlit run dashboard.py
-```
 
 ---
 
