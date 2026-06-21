@@ -25,6 +25,8 @@ In a live factory deployment, we will face several challenges:
 
 Additionally, we faced the hackathon constraint. We were a team of five with only a weekend to handle everything. We lacked the time and access required to map a full SLAM stack or execute complex on-site floor-plan calibrations. We needed a solution that was modular, well-performing and adaptable to any physical space.
 
+<img width="1918" height="1078" alt="image" src="https://github.com/user-attachments/assets/7019570a-a66b-49fb-b34b-198bcbbdef85" />
+
 ---
 
 ## How we ended up here
