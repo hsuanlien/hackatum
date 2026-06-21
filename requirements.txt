@@ -9,3 +9,4 @@ paho-mqtt>=1.6.1
 pygame>=2.6.0
 python-dotenv>=1.0.0
 twilio>=9.0.0
+certifi
